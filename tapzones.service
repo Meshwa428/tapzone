@@ -1,0 +1,17 @@
+# The tapzones service (docs/Gestures/Gesture system.md): listens to the mic
+# and runs the command of the section you tapped. A template: install.sh
+# fills in @APP@ and @PYTHON@ and installs it to ~/.config/systemd/user.
+# Logs: journalctl --user -u tapzones -f
+[Unit]
+Description=tapzones: run commands from taps on the screen, heard by the mic
+PartOf=graphical-session.target
+After=graphical-session.target pipewire-pulse.service
+
+[Service]
+WorkingDirectory=@APP@
+ExecStart=@PYTHON@ -u -W ignore @APP@/taps.py run
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

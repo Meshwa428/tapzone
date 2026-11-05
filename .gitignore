@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+/viz-*.png
+# Obsidian's per-machine window layout; the vault settings are shared
+docs/.obsidian/workspace*.json

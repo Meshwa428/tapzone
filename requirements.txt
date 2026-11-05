@@ -1,0 +1,5 @@
+# The service (engine.py), the editor's estimate and section training.
+numpy>=2
+scipy>=1.13
+scikit-learn>=1.9
+joblib>=1.4

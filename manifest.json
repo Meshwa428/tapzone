@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "meshwa.tapzones",
+  "name": "tapzones",
+  "version": "0.1.0",
+  "author": "Meshwa",
+  "license": "MIT",
+  "repository": "https://github.com/Meshwa428/tapzone",
+  "description": "Tap your laptop's non-touch screen: the built-in mic hears which section you tapped and runs its command. Bar status, themed flash, and a layout editor; the listening service runs from systemd.",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "omarchy/Service.qml",
+    "barWidget": "omarchy/BarWidget.qml",
+    "overlay": "omarchy/Editor.qml"
+  },
+  "barWidget": {
+    "displayName": "tapzones",
+    "description": "Listening / paused / training. Click to edit the tap layout, right click to pause.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

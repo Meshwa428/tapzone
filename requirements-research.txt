@@ -1,0 +1,5 @@
+# Everything else: the overlay's final ensemble (its CNNs), ml.py --export-final,
+# research.py, and the plots. install.sh --full adds these.
+-r requirements.txt
+torch>=2.4
+matplotlib>=3.8

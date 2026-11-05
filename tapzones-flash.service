@@ -1,0 +1,16 @@
+# The flash feedback for desktops without the Omarchy plugin (flash.py).
+# A template: install.sh fills in @APP@ and @PYTHON@, and installs it only
+# when Omarchy isn't there (the plugin draws the flash in the shell).
+[Unit]
+Description=tapzones: flash the section a tap landed in
+PartOf=graphical-session.target
+After=graphical-session.target tapzones.service
+
+[Service]
+WorkingDirectory=@APP@
+ExecStart=@PYTHON@ -u @APP@/taps.py flash
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target
