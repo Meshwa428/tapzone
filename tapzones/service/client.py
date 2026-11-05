@@ -1,5 +1,6 @@
-"""`tapzones status | pause | resume | toggle`: one command to the running
-service, over its socket (engine.py has the protocol)."""
+"""`tapzones status | pause | resume | toggle | mistake | confirm SECTION`:
+one command to the running service, over its socket (engine.py has the
+protocol)."""
 import json, socket, sys
 from ..paths import SOCKET
 
@@ -18,19 +19,51 @@ def connect():
     return s
 
 
-def send(cmd):
+def section_index(sections, which):
+    """The index of the section named `which` (any case), or numbered (from 1)."""
+    names = [s["name"].lower() for s in sections]
+    if which.lower() in names:
+        return names.index(which.lower())
+    if which.isdigit() and 1 <= int(which) <= len(sections):
+        return int(which) - 1
+    sys.exit(f"no section {which!r}: " + ", ".join(f"{i + 1} {s['name']}" for i, s in enumerate(sections)))
+
+
+def send(cmd, section=None):
     if not SOCKET:
         sys.exit("tapzones needs $XDG_RUNTIME_DIR: a directory only you can open (your systemd user session sets it)")
     try:
         f = connect().makefile("rw")
     except OSError as e:
         sys.exit(f"tapzones isn't running ({SOCKET or e}). Start it: systemctl --user start tapzones")
-    f.write(json.dumps({"cmd": cmd}) + "\n")
+    # The service greets every connection with its state, before it reads
+    # the command: a command that changes the state answers with a second one.
+    # confirm reads the greeting first, for the section names.
+    if cmd == "confirm":
+        greeting = json.loads(f.readline())
+        f.write(json.dumps({"cmd": cmd, "section": section_index(greeting["config"]["single"]["sections"], section)}) + "\n")
+    else:
+        f.write(json.dumps({"cmd": cmd}) + "\n")
     f.flush()
+    states = 0
     for line in f:
         msg = json.loads(line)
-        if msg.get("event") == "state":
-            m = msg["model"]
-            print(json.dumps({k: msg[k] for k in ("paused", "editing", "gate", "training", "estimate")} |
-                             {"model": {k: v for k, v in m.items() if k != "per_section"}}, indent=2))
+        event = msg.get("event")
+        if event == "error":
+            print(msg["message"], file=sys.stderr)
+            return 1
+        if event == "marked":
+            print(f"marked {msg['name']!r} from {msg['ago']:.0f} s ago as not a tap "
+                  f"({msg['total']} marked in all); the noise filter retrains shortly")
             return 0
+        if event == "confirmed":
+            print(f"confirmed the last miss as a tap in {msg['name']!r} and ran it "
+                  f"({msg['total']} confirmed in all); the noise filter retrains shortly")
+            return 0
+        if event == "state" and cmd not in ("mistake", "confirm"):
+            states += 1
+            if cmd == "status" or states == 2:
+                m = msg["model"]
+                print(json.dumps({k: msg[k] for k in ("paused", "editing", "gate", "noise", "training", "estimate")} |
+                                 {"model": {k: v for k, v in m.items() if k != "per_section"}}, indent=2))
+                return 0

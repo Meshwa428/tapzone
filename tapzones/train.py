@@ -26,10 +26,11 @@ def session_paths():
     """Every labelled recording, one per file: the guided calibration, test
     rounds, collect and locate sessions. Run 1 (one spot, clipped) is left
     out. Locate sessions cover the centre lines and edges, which collect
-    keeps clear of."""
+    keeps clear of. confirmed.npz holds the misses the user said were taps
+    ("That was a tap"), each placed at a spot inside the section picked."""
     paths = [os.path.join(DATA, "run2-calibration.npz")] + sorted(
         glob.glob(os.path.join(DATA, "test-*.npz")) + glob.glob(os.path.join(DATA, "collect-*.npz"))
-        + glob.glob(os.path.join(DATA, "locate-*.npz")))
+        + glob.glob(os.path.join(DATA, "locate-*.npz"))) + [os.path.join(DATA, "confirmed.npz")]
     return [p for p in paths if os.path.exists(p)]
 
 

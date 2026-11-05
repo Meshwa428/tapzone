@@ -2,6 +2,8 @@
 
     tapzones run                    the background service (tapzones.service)
     tapzones status | pause | resume | toggle
+    tapzones mistake                the last tap wasn't one: keep it as noise
+    tapzones confirm SECTION        the last miss was a tap there: run it, keep it
     tapzones layout                 edit each gesture's sections, save and train
     tapzones flash                  the GTK flash feedback (desktops without Omarchy)
     tapzones calibrate | test | free | locate | collect | noise
@@ -17,8 +19,11 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True, metavar="COMMAND")
     sub.add_parser("run", help="the background service: hears taps, runs their commands")
     for cmd, what in (("status", "what the service is doing, as JSON"), ("pause", "stop running commands"),
-                      ("resume", "run commands again"), ("toggle", "pause or resume")):
+                      ("resume", "run commands again"), ("toggle", "pause or resume"),
+                      ("mistake", "the last tap wasn't one: teach the noise filter (bind it to a key)")):
         sub.add_parser(cmd, help=what)
+    s = sub.add_parser("confirm", help="the last sound that ran nothing was a tap: run SECTION, teach the filter")
+    s.add_argument("section", help="the section's name (\"top left\") or number, from 1")
     sub.add_parser("layout", help="the layout editor (GTK; on Omarchy, click the bar icon)")
     sub.add_parser("flash", help="the GTK flash feedback, for desktops without the Omarchy plugin")
 
@@ -49,9 +54,12 @@ def main(argv=None):
     if a.cmd == "run":
         from .service import engine
         return engine.run()
-    if a.cmd in ("status", "pause", "resume", "toggle"):
+    if a.cmd in ("status", "pause", "resume", "toggle", "mistake"):
         from .service import client
         return client.send(a.cmd)
+    if a.cmd == "confirm":
+        from .service import client
+        return client.send("confirm", a.section)
     if a.cmd == "train":
         from . import train
         return train.export_sections(a.gesture) if a.job == "sections" else train.JOBS[a.job]()

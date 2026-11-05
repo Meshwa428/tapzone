@@ -201,7 +201,10 @@ var OMARCHY_ACTIONS = [
   { label: "Night light", command: "omarchy toggle nightlight" },
   { label: "Clipboard", command: "omarchy menu clipboard" },
   { label: "Emoji", command: "omarchy menu emoji" },
-  { label: "Play / pause", command: "playerctl play-pause" }
+  { label: "Play / pause", command: "playerctl play-pause" },
+  // As Super+Tab / Super+Shift+Tab: the next or previous workspace in use.
+  { label: "Next workspace", command: "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'" },
+  { label: "Previous workspace", command: "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'" }
 ]
 
 function clone(v) { return JSON.parse(JSON.stringify(v)) }

@@ -26,9 +26,17 @@ Item {
   // The editor's live-estimate data, once asked for (Layout.quickEstimate).
   property var estimate: null
   property var lastTap: null
+  // The newest {"event": "marked"} and the live count of a noise recording.
+  // What the last "That wasn't a tap" did: { ok, name, total, at } when it
+  // was kept, { ok: false, message, at } when there was nothing to mark.
+  property var markResult: null
+  // What the last "That was a tap" did: { ok, name, at }, or { ok: false, message, at }.
+  property var confirmResult: null
+  property int noiseCount: 0
   readonly property bool online: sock.connected && state !== null
   readonly property bool paused: online && state.paused
   readonly property bool training: online && state.training !== null
+  readonly property bool recording: online && state.recording !== null
 
   // Every event from the service, for the editor (saved, error, trained…).
   signal event(var msg)
@@ -41,6 +49,16 @@ Item {
   }
 
   function toggle() { send({ cmd: "toggle" }) }
+  // The last tap that ran a command wasn't a tap: the service keeps its
+  // sound as noise and retrains the noise filter.
+  function mistake() { send({ cmd: "mistake" }) }
+  // The last sound that ran nothing was a tap in section i: the service
+  // runs it and keeps it as a tap.
+  function confirm(i) { send({ cmd: "confirm", section: i }) }
+  function recordNoise(on) {
+    if (on) root.noiseCount = 0
+    send({ cmd: "noise", on: on })
+  }
 
   function openEditor() {
     if (root.shell && typeof root.shell.summon === "function") root.shell.summon(root.pluginId, "{}")
@@ -51,6 +69,15 @@ Item {
     try { msg = JSON.parse(line) } catch (e) { return }
     if (msg.event === "state") root.state = msg
     else if (msg.event === "estimate") root.estimate = msg
+    else if (msg.event === "marked")
+      root.markResult = { ok: true, name: msg.name, total: msg.total, at: Date.now() / 1000 }
+    else if (msg.event === "error" && msg.cmd === "mistake")
+      root.markResult = { ok: false, message: msg.message, at: Date.now() / 1000 }
+    else if (msg.event === "confirmed")
+      root.confirmResult = { ok: true, name: msg.name, at: Date.now() / 1000 }
+    else if (msg.event === "error" && msg.cmd === "confirm")
+      root.confirmResult = { ok: false, message: msg.message, at: Date.now() / 1000 }
+    else if (msg.event === "noise") root.noiseCount = msg.count
     else if (msg.event === "tap" || msg.event === "unsure") {
       root.lastTap = msg
       if (msg.feedback === "flash") flash.play(msg.event === "tap" ? msg.rect : null, msg.event === "tap" ? msg.name : "not sure: tap again")
@@ -90,10 +117,14 @@ Item {
     id: flash
     property var rect: null
     property string label: ""
+    // How long it stays fully shown before fading: the section flash is a
+    // glance; "tap again" is something to read.
+    property int hold: 0
 
     function play(r, text) {
       flash.rect = r
       flash.label = text
+      flash.hold = r === null ? 1600 : 0
       fade.restart()
     }
 
@@ -112,13 +143,11 @@ Item {
       anchors.fill: parent
       opacity: 0
 
-      NumberAnimation on opacity {
+      SequentialAnimation {
         id: fade
-        running: false
-        from: 1
-        to: 0
-        duration: 450
-        easing.type: Easing.InQuad
+        PropertyAction { target: content; property: "opacity"; value: 1 }
+        PauseAnimation { duration: flash.hold }
+        NumberAnimation { target: content; property: "opacity"; from: 1; to: 0; duration: 450; easing.type: Easing.InQuad }
       }
 
       Rectangle {

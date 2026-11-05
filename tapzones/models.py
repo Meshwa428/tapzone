@@ -7,6 +7,9 @@ from .features import EARLY_N, BEST1, signed, tap_features
 from .layout import layout_hash
 
 
+GATE_PATH = os.path.join(DATA, "gate.joblib")
+
+
 def model_path(gesture):
     return os.path.join(DATA, f"sections-{gesture}.joblib")
 
@@ -16,8 +19,7 @@ class Gate:
     counts as a tap."""
     def __init__(self):
         import joblib
-        path = os.path.join(DATA, "gate.joblib")
-        self.d = joblib.load(path) if os.path.exists(path) else None   # our own file
+        self.d = joblib.load(GATE_PATH) if os.path.exists(GATE_PATH) else None   # our own file
         if self.d:
             self.is_tap(np.zeros((EARLY_N, 2), np.float32))   # one-time setup now, not on the first tap
 

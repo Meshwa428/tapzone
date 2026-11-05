@@ -195,6 +195,23 @@ def section_of(where, layout):
     return out
 
 
+def inside_point(layout, i):
+    """A point that section_of puts in section i: its centre, or, when a
+    section over it covers that, the spot of a fine grid over it furthest
+    from that section's edges (a corner around a centre section, say)."""
+    x, y, w, h = layout[i]
+    centre = [x + w / 2, y + h / 2]
+    if section_of([centre], layout)[0] == i:
+        return centre
+    g = np.linspace(0.05, 0.95, 19)
+    pts = np.array([[x + a * w, y + b * h] for a in g for b in g])
+    ok = pts[section_of(pts, layout) == i]
+    if not len(ok):
+        return centre
+    edge = np.minimum.reduce([ok[:, 0] - x, x + w - ok[:, 0], ok[:, 1] - y, y + h - ok[:, 1]])
+    return ok[edge.argmax()].tolist()
+
+
 def layout_hash(layout):
     """Identifies a layout's geometry: a section model is only valid for
     the layout it was trained on. Names and commands don't count."""

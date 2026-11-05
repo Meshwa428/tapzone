@@ -142,3 +142,7 @@ gh release create v0.2.0 --generate-notes
 ## License
 
 MIT. See [LICENSE](LICENSE). Copyright (c) 2026 Meshwa.
+
+The sounds in `tapzones/sounds/` aren't covered by the MIT licence. They're
+from SND01 "sine" by Yasuhiro Tsuchiya, part of [SND](https://snd.dev), and
+are used under SND's terms: see [their credits](tapzones/sounds/CREDITS.md).

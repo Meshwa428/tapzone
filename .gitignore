@@ -6,3 +6,7 @@ build/
 /viz-*.png
 # Obsidian's per-machine window layout; the vault settings are shared
 docs/.obsidian/workspace*.json
+# Omarchy writes this theme from the machine's own colours
+docs/.obsidian/themes/
+# Sound kits as downloaded (SND's terms: not redistributed on their own)
+*.zip

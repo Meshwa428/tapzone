@@ -11,6 +11,7 @@ from . import Gtk, GLib, Gdk, Layer, cairo, ACCENT, FG, text, rounded
 from ..service import client
 
 FLASH_S = 0.45                    # how long a flash stays on screen
+UNSURE_HOLD_S = 1.6               # "tap again" stays fully shown this long before it fades
 
 
 class Flash:
@@ -34,7 +35,7 @@ class Flash:
         self.win.set_child(self.area)
         # Clicks go straight through to whatever is underneath.
         self.win.connect("map", lambda w: w.get_surface().set_input_region(cairo.Region()))
-        self.what, self.since, self.ticking = None, 0.0, False
+        self.what, self.since, self.hold, self.ticking = None, 0.0, 0.0, False
         threading.Thread(target=self.listen, daemon=True).start()
 
     def listen(self):
@@ -59,15 +60,17 @@ class Flash:
             self.show(None, "not sure: tap again")
 
     def show(self, rect, label):
-        """rect: the section (screen fractions), or None for "not sure"."""
+        """rect: the section (screen fractions), or None for "not sure", which
+        stays fully shown a while first: it's something to read."""
         self.what, self.since = (rect, label), time.time()
+        self.hold = UNSURE_HOLD_S if rect is None else 0.0
         self.win.set_visible(True)
         if not self.ticking:
             self.ticking = True
             GLib.timeout_add(16, self.tick)
 
     def tick(self):
-        if time.time() - self.since > FLASH_S:
+        if time.time() - self.since > self.hold + FLASH_S:
             self.win.set_visible(False)
             self.ticking = False
             return False
@@ -78,7 +81,7 @@ class Flash:
         if not self.what:
             return
         rect, label = self.what
-        a = max(0.0, 1 - (time.time() - self.since) / FLASH_S)
+        a = max(0.0, min(1.0, 1 - (time.time() - self.since - self.hold) / FLASH_S))
         cr.select_font_face("monospace", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         if rect is None:
             text(cr, label, w / 2, h / 2, 18, FG, 0.8 * a, center=True)

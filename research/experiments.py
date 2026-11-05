@@ -827,6 +827,62 @@ def warmup():
 
 
 @experiment
+def minimum():
+    """How few taps can a brand-new device get away with? Simulates
+    calibration from scratch: draw k sittings, take n taps from them
+    (n/4 per quadrant, as a calibration screen would ask), train on those
+    alone, and score on every sitting not drawn: the days after calibration.
+    Many draws per point, because a new user is one draw, not the average."""
+    learning_curve("minimum", "svm", lambda: make_pipeline(StandardScaler(), SVC(C=3)))
+
+
+@experiment
+def minimum_ensemble():
+    """minimum with the shipped soft vote (svm + mlp + logistic + cnn),
+    fewer points and draws: the CNN makes every fit slower."""
+    allc, wave = slice(None), slice(0, -1)
+    svm = lambda: make_pipeline(StandardScaler(), SVC(C=3, probability=True, random_state=0))
+    mlp = lambda: make_pipeline(StandardScaler(), MLPClassifier((128,), alpha=1e-2, max_iter=2000, random_state=0))
+    lr = lambda: make_pipeline(StandardScaler(), LogisticRegression(C=0.3, max_iter=5000))
+    learning_curve("minimum_ensemble", "svm+mlp+lr+cnn",
+                   lambda: Ensemble([(svm, allc), (mlp, allc), (lr, allc), (lambda: TorchCNN(40, seeds=1), wave)]),
+                   ks=(2, 3, 5), ns=(32, 64, 128, 192, 256), draws=12)
+
+
+def learning_curve(name, label, make, ks=(1, 2, 3, 5), ns=(16, 32, 64, 96, 128, 192, 256, 384, 512), draws=40):
+    F, extra, _ = best3()
+    usable = np.where(np.bincount(SESSION) >= 20)[0]
+
+    def draw(k, n, seed):
+        rng = np.random.default_rng(seed)
+        chosen = rng.choice(usable, k, replace=False)
+        pool = np.where(np.isin(SESSION, chosen))[0]
+        per = [pool[Y_ALL[pool] == q] for q in range(4)]
+        if min(len(p) for p in per) < n // 4:
+            return None
+        tr = np.concatenate([rng.choice(p, n // 4, replace=False) for p in per])
+        te = ~np.isin(SESSION, chosen)
+        m = make().fit(
+            np.concatenate([F[tr]] + [E[tr] for E in extra]), np.concatenate([Y_ALL[tr]] * (1 + len(extra))))
+        p = m.predict(F[te])
+        return (p == Y_ALL[te]).mean(), ((p >= 2) == (Y_ALL[te] >= 2)).mean()
+
+    print(f"\n== {name} ({label}, best3): train on n taps from k sittings only, score on all other sittings")
+    print("   quadrants: mean [10th–90th percentile over draws] · top/bottom mean")
+    for k in ks:
+        for n in ns:
+            res = [r for r in Parallel(n_jobs=4)(delayed(draw)(k, n, s) for s in range(draws)) if r is not None]
+            if len(res) < max(3, draws // 4):
+                continue
+            q, tb = np.array(res).T
+            lo, hi = np.percentile(q, [10, 90])
+            print(f"  k={k} n={n:3}  {q.mean():6.1%} [{lo:5.1%}–{hi:5.1%}]  top/bot {tb.mean():6.1%}  ({len(res)} draws)  "
+                  + "█" * int(q.mean() * 50), flush=True)
+            log(name, f"k={k} sittings, n={n} taps [{lo:.3f}-{hi:.3f}]", label,
+                (q.mean(), np.nan, np.nan, np.full(len(Y_ALL), -1)))
+
+
+@experiment
 def pool_cnn():
     """The CNN with best3's training copies (shifted + noise/gain), its
     out-of-session probabilities added to pool.npz, then every ensemble

@@ -37,3 +37,7 @@ version = { attr = "tapzones.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["tapzones*"]
+
+# The service's sounds (tapzones/sound.py) and their credits.
+[tool.setuptools.package-data]
+tapzones = ["sounds/*.wav", "sounds/*.md"]

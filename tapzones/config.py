@@ -18,6 +18,7 @@ def default_config():
     sections = lambda layout, names: [{"name": n, "rect": list(r), "command": ""} for n, r in zip(names, layout)]
     return {
         "feedback": "flash",
+        "sound": True,                 # tapzones/sound.py: a tap, "tap again", pause…
         "max_sections": 5,
         "single": {"enabled": True, "sections": sections(PRESETS["quadrants"],
                                                          ["Top left", "Top right", "Bottom left", "Bottom right"])},
@@ -36,6 +37,7 @@ def load(path=CONFIG):
     with open(path, "rb") as f:
         raw = tomllib.load(f)
     cfg["feedback"] = raw.get("feedback", cfg["feedback"])
+    cfg["sound"] = bool(raw.get("sound", cfg["sound"]))
     cfg["max_sections"] = int(raw.get("max_sections", cfg["max_sections"]))
     for g in GESTURES:
         if g in raw:
@@ -60,6 +62,7 @@ def save(cfg, path=CONFIG):
     out = ["# tapzones gestures: edit with `tapzones layout`, or by hand.",
            "# rect = [x, y, width, height] as fractions of the screen from the top-left.",
            f"feedback = {q(cfg['feedback'])}          # flash | notify | none",
+           f"sound = {'true' if cfg.get('sound', True) else 'false'}          # a short sound for taps, pause…",
            f"max_sections = {cfg['max_sections']}", ""]
     for g in GESTURES:
         out += [f"[{g}]", f"enabled = {'true' if cfg[g]['enabled'] else 'false'}"]

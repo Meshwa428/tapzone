@@ -354,3 +354,37 @@ time	experiment	variant	model	loso_pooled	loso_mean	grid_random	taps
 23:28:02	pool_cnn	ensemble with cnn	svm+extratrees+cnn	0.8208	0.8296	0.7833	692
 23:28:02	pool_cnn	ensemble with cnn	svm+mlp+logistic+cnn	0.8208	0.8318	0.8000	692
 23:28:02	pool_cnn	ensemble with cnn	svm+mlp+cnn	0.8165	0.8213	0.8000	692
+23:46:25	minimum	k=1 sittings, n=16 taps [0.527-0.721]	svm	0.6066	nan	nan	868
+23:46:25	minimum	k=1 sittings, n=32 taps [0.526-0.706]	svm	0.6285	nan	nan	868
+23:46:25	minimum	k=1 sittings, n=64 taps [0.622-0.728]	svm	0.6625	nan	nan	868
+23:46:27	minimum	k=2 sittings, n=16 taps [0.525-0.661]	svm	0.5999	nan	nan	868
+23:46:27	minimum	k=2 sittings, n=32 taps [0.596-0.727]	svm	0.6724	nan	nan	868
+23:46:28	minimum	k=2 sittings, n=64 taps [0.642-0.721]	svm	0.6873	nan	nan	868
+23:46:28	minimum	k=2 sittings, n=96 taps [0.673-0.748]	svm	0.7120	nan	nan	868
+23:46:29	minimum	k=2 sittings, n=128 taps [0.696-0.756]	svm	0.7304	nan	nan	868
+23:46:31	minimum	k=3 sittings, n=16 taps [0.531-0.675]	svm	0.5888	nan	nan	868
+23:46:31	minimum	k=3 sittings, n=32 taps [0.607-0.712]	svm	0.6522	nan	nan	868
+23:46:32	minimum	k=3 sittings, n=64 taps [0.622-0.744]	svm	0.6981	nan	nan	868
+23:46:32	minimum	k=3 sittings, n=96 taps [0.704-0.782]	svm	0.7430	nan	nan	868
+23:46:33	minimum	k=3 sittings, n=128 taps [0.717-0.793]	svm	0.7569	nan	nan	868
+23:46:34	minimum	k=3 sittings, n=192 taps [0.728-0.804]	svm	0.7706	nan	nan	868
+23:46:36	minimum	k=5 sittings, n=16 taps [0.502-0.658]	svm	0.5814	nan	nan	868
+23:46:37	minimum	k=5 sittings, n=32 taps [0.608-0.733]	svm	0.6692	nan	nan	868
+23:46:37	minimum	k=5 sittings, n=64 taps [0.679-0.767]	svm	0.7160	nan	nan	868
+23:46:38	minimum	k=5 sittings, n=96 taps [0.696-0.794]	svm	0.7426	nan	nan	868
+23:46:39	minimum	k=5 sittings, n=128 taps [0.691-0.797]	svm	0.7584	nan	nan	868
+23:46:41	minimum	k=5 sittings, n=192 taps [0.709-0.834]	svm	0.7713	nan	nan	868
+23:46:43	minimum	k=5 sittings, n=256 taps [0.709-0.840]	svm	0.7755	nan	nan	868
+23:46:46	minimum	k=5 sittings, n=384 taps [0.722-0.852]	svm	0.7733	nan	nan	868
+00:27:49	minimum_ensemble	k=2 sittings, n=32 taps [0.621-0.734]	svm+mlp+lr+cnn	0.6895	nan	nan	868
+00:28:03	minimum_ensemble	k=2 sittings, n=64 taps [0.677-0.743]	svm+mlp+lr+cnn	0.7098	nan	nan	868
+00:28:25	minimum_ensemble	k=2 sittings, n=128 taps [0.697-0.774]	svm+mlp+lr+cnn	0.7409	nan	nan	868
+00:29:03	minimum_ensemble	k=3 sittings, n=32 taps [0.620-0.730]	svm+mlp+lr+cnn	0.6790	nan	nan	868
+00:29:20	minimum_ensemble	k=3 sittings, n=64 taps [0.697-0.762]	svm+mlp+lr+cnn	0.7282	nan	nan	868
+00:29:54	minimum_ensemble	k=3 sittings, n=128 taps [0.787-0.829]	svm+mlp+lr+cnn	0.8042	nan	nan	868
+00:30:23	minimum_ensemble	k=3 sittings, n=192 taps [0.799-0.833]	svm+mlp+lr+cnn	0.8169	nan	nan	868
+00:31:11	minimum_ensemble	k=5 sittings, n=32 taps [0.616-0.767]	svm+mlp+lr+cnn	0.6912	nan	nan	868
+00:31:44	minimum_ensemble	k=5 sittings, n=64 taps [0.708-0.810]	svm+mlp+lr+cnn	0.7607	nan	nan	868
+00:32:41	minimum_ensemble	k=5 sittings, n=128 taps [0.718-0.846]	svm+mlp+lr+cnn	0.7934	nan	nan	868
+00:33:39	minimum_ensemble	k=5 sittings, n=192 taps [0.736-0.837]	svm+mlp+lr+cnn	0.7938	nan	nan	868
+00:35:14	minimum_ensemble	k=5 sittings, n=256 taps [0.754-0.857]	svm+mlp+lr+cnn	0.8118	nan	nan	868
