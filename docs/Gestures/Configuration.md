@@ -25,13 +25,16 @@ it can also be edited by hand.
   - `name`: shown in the overlay;
   - `rect`: `[x, y, width, height]` as **fractions of the screen** (0–1, from the
     top-left corner), so a layout survives a resolution change;
-  - `command`: a shell command, run when the gesture lands in the section.
+  - `command`: a shell command, run when the gesture lands in the section;
+  - `over = true` (optional): the section sits over the others and takes the area
+    it covers. It must come first: a tap belongs to the first section it falls in.
+    The corners + centre preset uses it for its Centre.
 - Areas no section covers are dead zones ([[Sections#Dead zones]]).
 
 ## Example
 
 ```toml
-max_sections = 5          # the recommended limit; raise it to allow more
+max_sections = 5          # the recommended limit; more is allowed, with a warning
 
 [single]
 enabled = true
@@ -66,8 +69,8 @@ enabled = false
 | Rule | What happens otherwise |
 |---|---|
 | An enabled gesture has **at least 1 section** | Not saved: "add a section, or turn the gesture off" |
-| **No more than `max_sections`** per gesture (default 5) | The editor stops; raising `max_sections` allows more, with a warning ([[Sections#Why 5 is the recommended maximum]]) |
-| Sections **don't overlap** | Not saved; the overlapping area is highlighted |
+| **Up to `max_sections`** per gesture is recommended (default 5) | More is allowed and saves; the editor warns, and the estimates show the cost ([[Sections#Why 5 is the recommended maximum]]) |
+| Sections **don't overlap**, except one with `over = true`, listed first | Not saved; the overlapping area is highlighted |
 | `rect` is inside the screen and at least 5% on each side | Not saved: smaller than the mic's typical error |
 | Every section has a `command` (it may be empty, to only show the gesture) | — |
 

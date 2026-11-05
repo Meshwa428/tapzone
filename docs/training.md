@@ -13,8 +13,9 @@ updated: 2026-11-05
 # Recording data and training
 
 How to record more taps and more not-a-tap noise, how the shipped model is built from
-them, and how to retrain, check and ship a new one. Every command runs from
-`~/Documents/Projects/tapzones` with `.venv/bin/python`. Commands and file formats are
+them, and how to retrain, check and ship a new one. `tapzones` is the installed command
+(or `.venv/bin/tapzones` in the dev env); `python` means the dev env's
+(`.venv/bin/python`), run from `~/Documents/Projects/tapzones`. Commands and file formats are
 listed in [[usage]]. How this extends to the planned gestures is in
 [[Calibration and training]].
 
@@ -22,24 +23,24 @@ listed in [[usage]]. How this extends to the planned gestures is in
 
 ```sh
 # 1. Record (as many sittings as you can; see below)
-.venv/bin/python taps.py collect                # 300 labelled taps per sitting
-.venv/bin/python taps.py noise                  # not-a-tap sounds, as long as you like
+tapzones collect                # 300 labelled taps per sitting
+tapzones noise                  # not-a-tap sounds, as long as you like
 
 # 2. Look at what you recorded
-.venv/bin/python viz.py ~/.local/share/tapzones/collect-<time>.npz
+python research/viz.py ~/.local/share/tapzones/collect-<time>.npz
 
 # 3. Score the recipe on all data, new sessions included
-.venv/bin/python research.py baseline augment_kinds pool pool_cnn cutoff
+python research/experiments.py baseline augment_kinds pool pool_cnn cutoff
 
-# 4. Set ml.CUTOFF from the cutoff table, then train and ship
-.venv/bin/python ml.py --export-final
+# 4. Set CUTOFF (tapzones/features.py) from the cutoff table, then train and ship
+tapzones train final
 
 # 5. After new noise (or N-marked false alarms): score and ship the gate
-.venv/bin/python research.py gate
-.venv/bin/python ml.py --export-gate
+python research/experiments.py gate
+tapzones train gate
 
 # 6. Try it live
-.venv/bin/python taps.py test
+tapzones test
 ```
 
 New `collect-*.npz` and `test-*.npz` files are picked up automatically by every step.
@@ -84,10 +85,10 @@ screen tap:
 - claps, snaps, pen clicks, talking, coughing, music;
 - **long stretches of ordinary background** with nothing happening.
 
-## Recording taps: `taps.py collect`
+## Recording taps: `tapzones collect`
 
 ```sh
-.venv/bin/python taps.py collect [PER_SPOT] [PER_ZONE]
+tapzones collect [PER_SPOT] [PER_ZONE]
 ```
 
 Defaults are 5 taps per grid spot and 30 random points per quadrant: **300 taps**.
@@ -115,18 +116,18 @@ Output: `~/.local/share/tapzones/collect-<date>-<time>.npz`.
 - `source`: `grid spot N` or `random`.
 
 **Tips:**
-- Shorter sittings are fine and add variety: `taps.py collect 2 10` is 72 + 40 =
+- Shorter sittings are fine and add variety: `tapzones collect 2 10` is 72 + 40 =
   112 taps.
 - To cover the centre lines and the edges, which `collect` keeps clear of, also do
-  `taps.py locate` rounds. They aren't used for training yet; see
+  `tapzones locate` rounds. They aren't used for training yet; see
   [[#Gaps in the current pipeline|Gaps]].
-- Live test rounds (`taps.py test`) are saved as `test-*.npz` and **are** used for
+- Live test rounds (`tapzones test`) are saved as `test-*.npz` and **are** used for
   training next time. Refused taps aren't saved.
 
-## Recording noise: `taps.py noise`
+## Recording noise: `tapzones noise`
 
 ```sh
-.venv/bin/python taps.py noise
+tapzones noise
 ```
 
 - Records **everything** the mic hears, with no tap detection and no threshold, until
@@ -145,7 +146,7 @@ exactly those.
 ## Checking what you recorded
 
 ```sh
-.venv/bin/python viz.py ~/.local/share/tapzones/collect-<time>.npz
+python research/viz.py ~/.local/share/tapzones/collect-<time>.npz
 ```
 
 This writes `viz-1` to `viz-5` PNGs in `~/.local/share/tapzones/`:
@@ -161,7 +162,7 @@ almost every tap clipped), find out why before training on it.
 
 ## The training recipe
 
-This is what `ml.py --export-final` does.
+This is what `tapzones train final` does.
 
 ### 1. Data
 
@@ -210,7 +211,7 @@ With 692 taps that's 6,228 training rows.
 
 **Prediction:** average the four models' probabilities (the 3 CNNs are averaged first,
 so they count as one). The quadrant is the most likely one. If its probability is
-below `ml.CUTOFF` (0.64), **refuse** the tap.
+below `CUTOFF` (0.64), **refuse** the tap.
 
 ### 5. Output
 
@@ -220,7 +221,7 @@ below `ml.CUTOFF` (0.64), **refuse** the tap.
 - `n` (input length);
 - `cutoff`, `taps`, `sessions`.
 
-`taps.py test` and `taps.py free` load it.
+`tapzones test` and `tapzones free` load it.
 
 Training takes **about 6 minutes** on this laptop's CPU at 692 taps. Time grows
 roughly with the number of taps; the SVM grows faster.
@@ -232,10 +233,10 @@ roughly with the number of taps; the SVM grows faster.
 > which now includes the new sessions:
 
 ```sh
-.venv/bin/python research.py baseline augment_kinds   # quick: ~2 min
-.venv/bin/python research.py pool pool_cnn            # the ensemble: ~15 min
-.venv/bin/python research.py cutoff                   # pick ml.CUTOFF
-.venv/bin/python research.py --best 10
+python research/experiments.py baseline augment_kinds   # quick: ~2 min
+python research/experiments.py pool pool_cnn            # the ensemble: ~15 min
+python research/experiments.py cutoff                   # pick CUTOFF
+python research/experiments.py --best 10
 ```
 
 - **pooled** (leave one session out) is the number to watch. Compare it with the same
@@ -244,23 +245,23 @@ roughly with the number of taps; the SVM grows faster.
 - Gaps under about ±1.6 points are noise at about 700 taps; this shrinks as data grows.
 - **`cutoff`** prints, for the shipped 4-model ensemble, the accuracy when answering
   100%, 95%, …, 60% of taps. Pick the row you want, usually about 80% answered, and put
-  its cutoff in `ml.CUTOFF` in `ml.py` before `--export-final`.
+  its cutoff in `CUTOFF` in `tapzones/features.py` before `tapzones train final`.
 
 > [!caution] Stale `pool.npz`
 > `pool` rewrites `pool.npz`, so run `pool` before `pool_cnn` and `cutoff`. `cutoff`
 > refuses to run on a `pool.npz` from a different number of taps.
 
 Optional checks:
-- `research.py curve`: is accuracy still rising with data?
-- `research.py errors`: where the mistakes are (writes `errors.png`).
-- `research.py timeline`: where in the sound each axis lives.
+- `experiments.py curve`: is accuracy still rising with data?
+- `experiments.py errors`: where the mistakes are (writes `errors.png`).
+- `experiments.py timeline`: where in the sound each axis lives.
 
 ## Shipping and trying it
 
 ```sh
-.venv/bin/python ml.py --export-final
-.venv/bin/python taps.py test      # 20-point round: score, refusals, ms after the hit
-.venv/bin/python taps.py free      # tap anywhere
+tapzones train final
+tapzones test      # 20-point round: score, refusals, ms after the hit
+tapzones free      # tap anywhere
 ```
 
 The round summary shows the score, how many taps were refused, and the median time
@@ -274,8 +275,8 @@ tap at all. If it wasn't, the overlay shows "not a screen tap: ignored" and does
 nothing. Results and the reasoning are in [[research#9. Tap or not a tap (the gate)]].
 
 ```sh
-.venv/bin/python research.py gate          # score it: ~5 min, → gate-results.tsv
-.venv/bin/python ml.py --export-gate       # train and ship it: ~1 min, → gate.joblib
+python research/experiments.py gate          # score it: ~5 min, → gate-results.tsv
+tapzones train gate       # train and ship it: ~1 min, → gate.joblib
 ```
 
 **Data.**
@@ -298,22 +299,22 @@ first 45 ms after the hit):
 without it, and the threshold is set so that 97% of those taps get through. A higher
 value turns away fewer real taps and lets more noise through.
 
-**How it is scored (`research.py gate`):** each noise recording by a gate that never
+**How it is scored (`experiments.py gate`):** each noise recording by a gate that never
 heard it, counting **only noises loud enough to fire the detector** (`ml.would_fire`).
 Quiet noises never reach the overlay, and counting them makes any gate look good.
 
 **Saved in `gate.joblib`:** `model`, `threshold`, `keep`, and the counts of `taps`,
-`noise`, `loud` and `recordings`. `taps.py` loads it automatically when it exists,
+`noise`, `loud` and `recordings`. The service and the overlay load it automatically when it exists,
 and the overlay's label then ends with "+ gate". It costs about 5 ms per sound. Delete
 `gate.joblib` to turn the gate off.
 
 **Recording noise that helps:**
 - **Only sounds loud enough to fire the overlay count.** Of 42 knocks in one
   recording, only 7 were. Knock about as hard as you'd tap the screen.
-- **The best way:** run `taps.py free` and knock, bump and type around the laptop.
+- **The best way:** run `tapzones free` and knock, bump and type around the laptop.
   Every time it answers a quadrant for something that wasn't a tap, press **N**. Those
   are exactly the false alarms the gate needs, from your real setup. Then run
-  `ml.py --export-gate`.
+  `tapzones train gate`.
 - Table knocks right next to the laptop are the hardest: they rock the lid like a tap.
   Record them in several sittings.
 

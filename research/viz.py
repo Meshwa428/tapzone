@@ -2,17 +2,17 @@
 """Look at the taps themselves: waveforms, mel spectrograms, and how alike
 every pair of taps is, by quadrant, grid spot and time.
 
-    python3 viz.py [collect-….npz]   →  ~/.local/share/tapzones/viz-*.png
+    python research/viz.py [collect-….npz]   →  ~/.local/share/tapzones/viz-*.png
 """
 import glob, os, sys
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import ml
+from tapzones import features
+from tapzones.paths import DATA
 
-DATA = ml.DATA
-ZONES = ml.ZONES
+ZONES = features.ZONES
 COLORS = ["#e06c75", "#e5c07b", "#98c379", "#61afef"]
 BG, FG = "#0c0b0c", "#fafcfb"
 plt.rcParams.update({"figure.facecolor": BG, "axes.facecolor": BG, "savefig.facecolor": BG,
@@ -22,14 +22,14 @@ plt.rcParams.update({"figure.facecolor": BG, "axes.facecolor": BG, "savefig.face
 
 def load(path):
     d = np.load(path)
-    X = np.array([ml.aligned(w) for w in d["windows"]])
+    X = np.array([features.aligned(w) for w in d["windows"]])
     return X, d["truth"].astype(int), d["source"], d["where"]
 
 
 def similarity(X, ms=20, lag=24):
     """How alike two taps are: the best correlation of their first `ms`
     milliseconds, letting them slide ±0.5 ms against each other."""
-    n = int(ms * ml.SR / 1000)
+    n = int(ms * features.SR / 1000)
     A = X[:, 48 - lag: 48 + n + lag]
     core = X[:, 48: 48 + n]
     core = (core - core.mean(1, keepdims=True)) / (core.std(1, keepdims=True) + 1e-9)
@@ -45,8 +45,8 @@ def main():
     path = sys.argv[1] if len(sys.argv) > 1 else sorted(glob.glob(os.path.join(DATA, "collect-*.npz")))[-1]
     X, y, src, where = load(path)
     name = os.path.basename(path).removesuffix(".npz")
-    t_ms = (np.arange(-48, 1200) / ml.SR) * 1000
-    mels = np.array([ml.logmel(x) for x in X])
+    t_ms = (np.arange(-48, 1200) / features.SR) * 1000
+    mels = np.array([features.logmel(x) for x in X])
     spot = np.array([int(s.split()[-1]) if s != "random" else 0 for s in src])
 
     # ---------------------------------------------------- 1. waveforms
@@ -76,7 +76,7 @@ def main():
     fig, ax = plt.subplots(2, 4, figsize=(20, 8.5))
     fig.suptitle("Average mel spectrogram per quadrant (top), and its difference from the overall average (bottom)", fontsize=13)
     overall = mels.mean(0)
-    ext = [0, 32 * 112 / ml.SR * 1000, 0, 64]
+    ext = [0, 32 * 112 / features.SR * 1000, 0, 64]
     for k in range(4):
         m = mels[y == k].mean(0)
         a = ax[0, k]

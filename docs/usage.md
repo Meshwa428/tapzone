@@ -22,47 +22,57 @@ Commands, keys, files and data formats. For step-by-step recording and retrainin
 > [[Omarchy plugin#Install]]. What follows is the development setup.
 
 The development env is one virtual environment, made with uv on the **system** Python
-(3.14), so the system's GTK4 bindings and gtk4-layer-shell are visible:
+(3.14), so the system's GTK4 bindings and gtk4-layer-shell are visible. The package is
+installed editable, so `.venv/bin/tapzones` runs the code in the repo:
 
 ```sh
 cd ~/Documents/Projects/tapzones
 uv venv --python /usr/bin/python3 --system-site-packages .venv
-UV_HTTP_TIMEOUT=300 uv pip install --python .venv/bin/python numpy scikit-learn matplotlib torch
+UV_HTTP_TIMEOUT=300 uv pip install --python .venv/bin/python -e '.[full]'
+.venv/bin/python -m unittest discover -s tests     # Layout.js ↔ Python, config, socket dir
 ```
 
-> [!note] `taps.py` restarts itself
-> It re-runs with `LD_PRELOAD=/usr/lib/libgtk4-layer-shell.so`, because the layer-shell
-> library must load before libwayland. A script that imports `taps` needs the same
-> `LD_PRELOAD` already set, or its own code is lost when the process restarts.
+> [!note] The GTK commands restart themselves
+> Importing `tapzones.gtk` re-runs the process with
+> `LD_PRELOAD=/usr/lib/libgtk4-layer-shell.so`, because the layer-shell library must load
+> before libwayland. The headless commands (`run`, `status`, `train`…) never import it.
 
-## The overlay: `taps.py`
+## Commands: `tapzones`
 
-A full-screen overlay showing the four quadrants, each quadrant's tap curves, and a
-live scope of the mic.
+One command, `tapzones` (`python -m tapzones` in the dev env). `tapzones --help` lists
+everything; `tapzones COMMAND --help` explains one.
+
+**The service and its front-ends:**
 
 | Command | What it does |
 |---|---|
-| `.venv/bin/python taps.py` | Calibrate: 18 taps per quadrant at guided grid spots, then review |
-| `.venv/bin/python taps.py test` | **Test round with the final ensemble**: 20 random points (5 per quadrant). Answers 45 ms after the hit; a tap below 0.64 confidence shows "Not sure: tap again" and the same point stays |
-| `.venv/bin/python taps.py free` | **Tap anywhere with the final ensemble**: each answer flashes its quadrant, with confidence and ms after the hit |
-| `.venv/bin/python taps.py test --knn` | Test round with the calibration kNN (the original model) instead |
-| `.venv/bin/python taps.py test --signed` | Test round guessed by the single signed CNN |
-| `.venv/bin/python taps.py test --train NAME,…` | Test round with an SVM on the older spectral features, trained on named sessions |
-| `.venv/bin/python taps.py collect [PER_SPOT] [PER_ZONE]` | Collect training data: the 3×3 grid per quadrant (default 5 taps per spot), then random points (default 30 per quadrant) |
-| `.venv/bin/python taps.py noise` | Record everything the mic hears, no threshold, while you make sounds that are not screen taps |
-| `.venv/bin/python taps.py locate` | Tap anywhere you're shown; the x,y model draws where it heard you, with the running x and y error in pixels |
-| `.venv/bin/python taps.py layout` | **The layout editor** ([[Sections#Making a layout]]): sections for each gesture, their names and commands, and feedback. Save writes `gestures.toml` and trains the section model in the background |
-| `.venv/bin/python taps.py run` | **The service** (`engine.py`, no UI): listens and runs the command of the section you tapped. Stays quiet while the overlay or an editor is open. Serves the socket the front-ends use ([[Omarchy plugin#How it fits together]]) |
-| `.venv/bin/python taps.py status` / `pause` / `resume` / `toggle` | Talk to the running service. Pause is kept across restarts |
-| `.venv/bin/python taps.py flash` | The flash feedback as a GTK client, for desktops without the Omarchy plugin |
+| `tapzones run` | **The service** (no UI): listens and runs the command of the section you tapped. Stays quiet while the overlay or an editor is open. Serves the socket the front-ends use ([[Omarchy plugin#How it fits together]]) |
+| `tapzones status` / `pause` / `resume` / `toggle` | Talk to the running service. Pause is kept across restarts |
+| `tapzones layout` | **The layout editor** ([[Sections#Making a layout]]): sections for each gesture, their names and commands, and feedback. Save writes `gestures.toml` and trains the section model in the background |
+| `tapzones flash` | The flash feedback as a GTK client, for desktops without the Omarchy plugin |
 
-Installed with `install.sh`, these are `tapzones <command>`, and the service runs as the
-systemd user unit `tapzones.service`. To follow its log (every tap, its section and
-confidence): `journalctl --user -u tapzones -f`.
+Installed with `install.sh`, the service runs as the systemd user unit
+`tapzones.service`. To follow its log (every tap, its section and confidence):
+`journalctl --user -u tapzones -f`.
 
 It reloads `gestures.toml` and the section model by itself when either one changes. On
 Omarchy, the same editor is in the shell: click the bar's tap icon
 ([[Omarchy plugin#Using it on Omarchy]]).
+
+**The overlay**: a full-screen view of the four quadrants, each quadrant's tap curves,
+and a live scope of the mic.
+
+| Command | What it does |
+|---|---|
+| `tapzones calibrate` | Calibrate: 18 taps per quadrant at guided grid spots, then review |
+| `tapzones test` | **Test round with the final ensemble**: 20 random points (5 per quadrant). Answers 45 ms after the hit; a tap below 0.64 confidence shows "Not sure: tap again" and the same point stays |
+| `tapzones free` | **Tap anywhere with the final ensemble**: each answer flashes its quadrant, with confidence and ms after the hit |
+| `tapzones test --knn` | Test round with the calibration kNN (the original model) instead |
+| `tapzones test --signed` | Test round guessed by the single signed CNN |
+| `tapzones test --train NAME,…` | Test round with an SVM on the older spectral features, trained on named sessions |
+| `tapzones collect [PER_SPOT] [PER_ZONE]` | Collect training data: the 3×3 grid per quadrant (default 5 taps per spot), then random points (default 30 per quadrant) |
+| `tapzones noise` | Record everything the mic hears, no threshold, while you make sounds that are not screen taps |
+| `tapzones locate` | Tap anywhere you're shown; the x,y model draws where it heard you, with the running x and y error in pixels |
 
 **Layout editor keys** (when no text box has focus):
 
@@ -77,7 +87,7 @@ Omarchy, the same editor is in the shell: click the bar's tap icon
 | S | Save |
 | Esc | Quit (press twice if there are unsaved changes) |
 
-**Keys:**
+**Overlay keys:**
 
 | Key | Action |
 |---|---|
@@ -91,72 +101,81 @@ Omarchy, the same editor is in the shell: click the bar's tap icon
 
 In noise mode only Esc works; typing is part of the noise.
 
-## Training and research: `ml.py`, `research.py`, `viz.py`, `speed.py`
+## Training and research
 
 To record more data and retrain step by step, follow [[training]].
 
+**Training** (`tapzones train`, in `tapzones/train.py`):
+
 | Command | What it does |
 |---|---|
-| `.venv/bin/python ml.py --export-final` | **Train the shipped ensemble** on every session (plus shifted and noise/gain copies) → `final.joblib`. About 6 minutes. Re-run after collecting new sessions |
-| `.venv/bin/python ml.py --export` | Train the signed CNN (3 copies) on every session → `signed-cnn.pt` |
-| `.venv/bin/python ml.py --export-xy` | Train the x,y position SVR → `xy-svr.joblib` |
-| `.venv/bin/python ml.py --signed` | The original signed-waveform evaluation |
-| `.venv/bin/python ml.py --export-gate` | **Train the shipped tap-or-not gate** on every tap vs every noise → `gate.joblib`. About 1 minute |
-| `.venv/bin/python research.py gate` | Score gate variants: loud noises from a recording it never heard → `gate-results.tsv` |
-| `.venv/bin/python ml.py --export-sections single` | **Train the section model** for the layout in `gestures.toml` → `sections-single.joblib`. About 8 minutes. The editor's Save runs it for you |
-| `.venv/bin/python research.py layouts dead_zones double_sim` | Score section layouts → `layout-results.tsv` |
-| `.venv/bin/python ml.py --gate` | The old spectral-feature gate (superseded) |
-| `.venv/bin/python research.py NAME…` | Run experiments (see [[experiments]]) |
-| `.venv/bin/python research.py --best 15` | Leaderboard |
-| `.venv/bin/python viz.py [collect-….npz]` | Waveform, mel, similarity, spot and polarity plots → `viz-*.png` |
-| `.venv/bin/python speed.py` | Per-model inference time for one tap |
+| `tapzones train sections single` | **Train the section model** for the layout in `gestures.toml` → `sections-single.joblib`. About 4 minutes. The editor's Save runs it for you |
+| `tapzones train gate` | **Train the shipped tap-or-not gate** on every tap vs every noise → `gate.joblib`. About 1 minute |
+| `tapzones train final` | Train the overlay's ensemble on every session (plus shifted and noise/gain copies) → `final.joblib`. About 6 minutes. Needs `.[full]` (torch) |
+| `tapzones train signed` | Train the signed CNN (3 copies) on every session → `signed-cnn.pt` |
+| `tapzones train xy` | Train the x,y position SVR → `xy-svr.joblib` |
 
-Shared code in `ml.py`:
-- `ml.signed(W, **ml.BEST1)` turns windows (taps × 8400 × 2) into features.
-- `ml.WAVE` is the CNN's input settings; `ml.CUTOFF` is the shipped confidence cutoff.
-- `ml.noise_gain()` makes the noise + gain training copies.
-- `ml.cnn()` defines the CNN.
-- `ml.train_cnn()` trains it.
-- `ml.session_paths()` lists every labelled session.
+**Research** (`research/`, run from the repo with the dev env's Python):
+
+| Command | What it does |
+|---|---|
+| `python research/experiments.py NAME…` | Run experiments (see [[experiments]]), appending to `research/results/results.tsv` |
+| `python research/experiments.py --best 15` | Leaderboard |
+| `python research/experiments.py gate` | Score gate variants: loud noises from a recording it never heard → `gate-results.tsv` |
+| `python research/experiments.py layouts dead_zones double_sim` | Score section layouts → `layout-results.tsv` |
+| `python research/evaluate.py` | The first round: log-mel models across sessions (`--deep`, `--augment`, `--signed`, `--gate` for the old spectral-feature gate) |
+| `python research/viz.py [collect-….npz]` | Waveform, mel, similarity, spot and polarity plots → `viz-*.png` |
+| `python research/analyze.py` | Plots of the calibration taps → `analysis.png` |
+| `python research/speed.py` | Per-model inference time for one tap |
+
+Shared code, in `tapzones.features`:
+- `signed(W, **BEST1)` turns windows (taps × 8400 × 2) into features.
+- `WAVE` is the CNN's input settings; `CUTOFF` is the overlay ensemble's confidence cutoff.
+- `cnn()` defines the CNN.
+
+And in `tapzones.train`: `train_cnn()` trains it, `noise_gain()` makes the noise + gain
+training copies, and `session_paths()` lists every labelled session.
 
 ## Files
 
 **Project** (`~/Documents/Projects/tapzones`):
 
-| File | What |
+| Path | What |
 |---|---|
-| `taps.py` | The overlay, and the entry point for every command |
-| `mic.py` | The tap detector, with no UI (shared by the overlay and the service) |
-| `engine.py` | The service (`taps.py run`) and its socket |
-| `gestures.py` | Layouts, the config, and the models the service runs |
-| `editor.py` | The GTK layout editor (`taps.py layout`) |
-| `flash.py` | The GTK flash feedback (`taps.py flash`) |
+| `tapzones/__main__.py` | The `tapzones` command: every subcommand above |
+| `tapzones/paths.py` | Where things live: config, data, state, the socket (only in a private `$XDG_RUNTIME_DIR`) |
+| `tapzones/audio.py` | The tap detector, with no UI (shared by the overlay and the service) |
+| `tapzones/features.py` | What the models hear: the signed waveform, the gate's features, the CNN |
+| `tapzones/layout.py` | Sections and presets, layout checks, the editor's live estimate |
+| `tapzones/config.py` | `gestures.toml`: gestures, defaults, load and save |
+| `tapzones/models.py` | The models the service runs on each tap: the gate and the section model |
+| `tapzones/train.py` | `tapzones train`: every shipped model |
+| `tapzones/service/` | `engine.py`, the service and its socket protocol; `client.py`, `tapzones status` and friends |
+| `tapzones/gtk/` | The GTK front-ends: `overlay.py`, `editor.py`, `flash.py`; `__init__.py` has the layer-shell restart, theme and drawing helpers |
 | `manifest.json`, `omarchy/` | The Omarchy plugin: `Service.qml` (socket client, flash), `BarWidget.qml`, `Editor.qml`, `Layout.js` ([[Omarchy plugin]]) |
 | `install.sh` | Sets up the env, the `tapzones` command and the units ([[Omarchy plugin#Install]]) |
-| `tapzones.service`, `tapzones-flash.service` | systemd unit templates; `install.sh` fills in the paths |
-| `requirements.txt`, `requirements-research.txt` | The service's packages; plus torch and matplotlib for the rest |
-| `ml.py` | Features, models, export |
-| `research.py` | The experiment harness |
-| `viz.py`, `analyze.py` | Plots of the raw data |
-| `speed.py` | Latency measurement |
-| `results.tsv` | Every scored configuration: time, experiment, variant, model, pooled, session mean, grid → random, taps |
-| `gate-results.tsv` | Every scored gate: time, features, model, taps kept, loud noise rejected overall and per recording, taps, loud noises |
-| `pool.npz` | Out-of-session probabilities per model (`<model>\|P`, `<model>\|Pg`) |
-| `layout-results.tsv` | Every scored section layout (`research.py layouts`, `dead_zones`, `double_sim`) |
+| `pyproject.toml` | The package: its dependencies (`.[full]` adds torch and matplotlib) and the `tapzones` command |
+| `systemd/` | `tapzones.service`, `tapzones-flash.service`: unit templates; `install.sh` fills in the paths |
+| `tests/` | `python -m unittest discover -s tests`: `Layout.js` agrees with `layout.py`, the config round trip, the socket's directory check |
+| `research/` | `experiments.py` (the experiment harness), `evaluate.py` (the first round), `viz.py`, `analyze.py`, `speed.py` |
+| `research/results/results.tsv` | Every scored configuration: time, experiment, variant, model, pooled, session mean, grid → random, taps |
+| `research/results/gate-results.tsv` | Every scored gate: time, features, model, taps kept, loud noise rejected overall and per recording, taps, loud noises |
+| `research/results/pool.npz` | Out-of-session probabilities per model (`<model>\|P`, `<model>\|Pg`) |
+| `research/results/layout-results.tsv` | Every scored section layout (`experiments.py layouts`, `dead_zones`, `double_sim`) |
+| `docs/` | These documents, an Obsidian vault. Start at [[README]] |
 
 **Config**: `~/.config/tapzones/gestures.toml`. See [[Configuration]].
-| `docs/` | These documents, an Obsidian vault. Start at [[README]] |
 
 **Data** (`~/.local/share/tapzones`):
 
 | File | What | Keys |
 |---|---|---|
 | `run2-calibration.npz` | Guided calibration, 72 taps | `windows`, `labels`, `where` |
-| `calibration.npz` | The current calibration (used by `taps.py test` without `--signed`) | same |
+| `calibration.npz` | The current calibration (used by `tapzones test --knn`) | same |
 | `collect-20261104-193438.npz` | 200 taps at random points | `windows`, `where`, `truth`, `source` |
 | `collect-20261104-200937.npz` | 300 taps, balanced: 180 grid (`grid spot N`) + 120 `random` | same |
 | `test-*.npz` | Test rounds, 20 taps each, with the model's guesses | `model`, `windows`, `where`, `truth`, `guess`, `conf`; final-model rounds add `ms` (answer time after the hit) and `refused` (count) |
-| `final.joblib` | **The shipped ensemble**, loaded by `taps.py test` / `free` | `sklearn` (svm, mlp, logistic pipelines), `cnn` (3 state dicts), `n`, `cutoff`, `taps`, `sessions` |
+| `final.joblib` | **The overlay's ensemble**, loaded by `tapzones test` / `free` | `sklearn` (svm, mlp, logistic pipelines), `cnn` (3 state dicts), `n`, `cutoff`, `taps`, `sessions` |
 | `final-692taps.joblib` | The previous ensemble (692 taps), kept for comparison | same |
 | `locate-*.npz` | Locate sessions; also training data now | `model`, `windows`, `where`, `guess_xy`, `truth` |
 | `sections-<gesture>.joblib` | A gesture's section model, valid only for the layout it was trained on | `models`, `layout`, `hash`, `cutoff`, `accuracy`, `answered`, `answered_accuracy`, `per_section`, `taps` |
@@ -166,9 +185,9 @@ Shared code in `ml.py`:
 | `noise-*.raw` / `.json` | Continuous noise, 16-bit mono 48 kHz, with prompt times | |
 | `noise-20261104-195118.npz` | Older threshold-caught noises | `windows` |
 | `noise-free-*.npz` | False alarms marked with **N** in free mode, one file per run | `windows` |
-| `gate.joblib` | The tap-or-not gate (`ml.py --export-gate`) | `model`, `threshold`, `keep`, `taps`, `noise`, `loud`, `recordings` |
-| `signed-cnn.pt` | The live CNN (3 copies), loaded by `taps.py test --signed` | `states`, `n`, `taps`, `sessions` |
-| `xy-svr.joblib` | The x,y model, loaded by `taps.py locate` | `model`, `taps`, `sessions` |
+| `gate.joblib` | The tap-or-not gate (`tapzones train gate`) | `model`, `threshold`, `keep`, `taps`, `noise`, `loud`, `recordings` |
+| `signed-cnn.pt` | The live CNN (3 copies), loaded by `tapzones test --signed` | `states`, `n`, `taps`, `sessions` |
+| `xy-svr.joblib` | The x,y model, loaded by `tapzones locate` | `model`, `taps`, `sessions` |
 
 **Formats:**
 - `windows` is float32 (taps × 8400 × 2): 175 ms at 48 kHz, stereo, starting 20 ms

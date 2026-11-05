@@ -55,30 +55,27 @@ fi
 # --------------------------------------------------------------- python env
 say "Python env: $VENV"
 mkdir -p "$DATA"
-reqs=$APP/requirements.txt
-[[ $full == yes ]] && reqs=$APP/requirements-research.txt
+# Editable: the env runs the code in this folder, so `omarchy plugin update`
+# (or git pull) plus a service restart is an upgrade.
+pkg=$APP
+[[ $full == yes ]] && pkg="$APP[full]"
 # System site packages: the GTK overlay and flash use the system's PyGObject.
 if command -v uv >/dev/null; then
   [[ -x $VENV/bin/python ]] || uv venv --system-site-packages --python python3 "$VENV"
-  uv pip install --python "$VENV/bin/python" -r "$reqs"
+  uv pip install --python "$VENV/bin/python" -e "$pkg"
 else
   [[ -x $VENV/bin/python ]] || python3 -m venv --system-site-packages "$VENV"
-  "$VENV/bin/python" -m pip install --upgrade -r "$reqs"
+  "$VENV/bin/python" -m pip install --upgrade -e "$pkg"
 fi
 
 # ------------------------------------------------------------- the command
 mkdir -p "$BIN"
-cat > "$BIN/tapzones" <<EOF
-#!/usr/bin/env bash
-# tapzones: see $APP/docs/usage.md
-exec "$VENV/bin/python" "$APP/taps.py" "\$@"
-EOF
-chmod +x "$BIN/tapzones"
+ln -sf "$VENV/bin/tapzones" "$BIN/tapzones"
 
 # ------------------------------------------------------------ systemd units
 mkdir -p "$UNITS"
 unit() {  # template in this folder → $UNITS, with this install's paths
-  sed -e "s|@APP@|$APP|g" -e "s|@PYTHON@|$VENV/bin/python|g" "$APP/$1" > "$UNITS/$1"
+  sed -e "s|@APP@|$APP|g" -e "s|@PYTHON@|$VENV/bin/python|g" "$APP/systemd/$1" > "$UNITS/$1"
 }
 unit tapzones.service
 units=(tapzones.service)

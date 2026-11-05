@@ -64,7 +64,7 @@ How the design limits it:
 
 ## Detector changes
 
-Today's detector (`taps.py`, `Mic.run`) would lose most double taps:
+Today's detector (`tapzones/audio.py`, `Mic.run`) would lose most double taps:
 
 | Today | Why it's a problem | Change |
 |---|---|---|
@@ -92,7 +92,7 @@ $$
   columns. That's measured in [[Research plan#3. Combining the taps of a double tap]].
 
 > [!success] Measured (simulated from single taps)
-> `research.py double_sim` takes the out-of-session section probabilities of 2 or 3
+> `research/experiments.py double_sim` takes the out-of-session section probabilities of 2 or 3
 > different recorded taps from the same section, and multiplies them:
 >
 > | Layout | Single | Double | Triple |

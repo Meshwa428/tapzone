@@ -22,7 +22,7 @@ tapzones is one folder that works two ways:
 
 ```mermaid
 graph LR
-  mic[Built-in mic] --> engine["Service: engine.py<br/>systemd: tapzones.service"]
+  mic[Built-in mic] --> engine["Service: tapzones/service/engine.py<br/>systemd: tapzones.service"]
   engine -- "runs" --> cmd[Section command]
   engine <-- "JSON lines<br/>$XDG_RUNTIME_DIR/tapzones.sock" --> plugin
   subgraph plugin [Omarchy shell plugin]
@@ -30,7 +30,7 @@ graph LR
     bar[omarchy/BarWidget.qml]
     ed[omarchy/Editor.qml + Layout.js]
   end
-  engine <-- "same socket" --> gtk["flash.py<br/>(other desktops)"]
+  engine <-- "same socket" --> gtk["tapzones/gtk/flash.py<br/>(other desktops)"]
   cli["tapzones status / pause"] --> engine
 ```
 
@@ -38,9 +38,13 @@ graph LR
   shell or reloading the plugin never interrupts listening, and never reloads the
   models (a few seconds).
 - **Front-ends only talk to the socket.** The protocol is documented at the top of
-  `engine.py`.
+  `tapzones/service/engine.py`.
+- **The socket is private.** It lives only in `$XDG_RUNTIME_DIR`, and only if that is a
+  real directory that just you can open. There is no fallback to `/tmp`: anyone who
+  can reach the socket can save section commands, and those run as you.
 - **While the editor is open** it tells the service `editing`, and taps run nothing.
-  The GTK overlay (`taps.py` calibrate/test/collect) does the same with its lock file.
+  The GTK overlay (`tapzones calibrate`/`test`/`collect`…) does the same with its lock
+  file.
 - **Feedback.**
   - With `feedback = "flash"`, a connected UI draws the flash.
   - If no UI is connected, the service sends a notification instead, so feedback never
@@ -71,11 +75,11 @@ What `install.sh` does:
 1. **Checks** for `parec` and Python 3.11+. Off Omarchy, it also checks for GTK 4,
    PyGObject and gtk4-layer-shell.
 2. **Python env:** creates `~/.local/share/tapzones/venv` (uv if present, else venv)
-   with `requirements.txt`. `--full` adds torch and matplotlib, for the overlay's
-   ensemble and research.
-3. **The command:** installs `~/.local/bin/tapzones`, which runs `taps.py` from the
-   folder.
-4. **systemd:** fills in the unit templates, installs them to
+   and installs this folder into it as an editable package (`pyproject.toml`). `--full`
+   adds torch and matplotlib, for the overlay's ensemble and research.
+3. **The command:** links `~/.local/bin/tapzones` to the env's `tapzones`. It runs the
+   code in this folder, so an update is a pull plus a service restart.
+4. **systemd:** fills in the unit templates in `systemd/`, installs them to
    `~/.config/systemd/user/`, and enables them:
    - `tapzones.service` everywhere;
    - `tapzones-flash.service` only off Omarchy.

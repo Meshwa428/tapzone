@@ -2,7 +2,7 @@
 """Draws what the calibration taps look like, to see why quadrants are told
 apart (or not). Writes ~/.local/share/tapzones/analysis.png.
 
-    analyze.py [calibration.npz]
+    python research/analyze.py [calibration.npz]
 """
 import os, sys
 import numpy as np

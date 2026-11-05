@@ -70,7 +70,7 @@ it to 82%.
   hard part. See [[research#9. Tap or not a tap (the gate)]].
 - About 355 model configurations scored the same way, logged in `results.tsv`.
 - **Up/down: 94% right. Left/right: 85% right.** Left/right is the weak axis.
-- **Shipped model** (`final.joblib`, used by `taps.py test` and `taps.py free`):
+- **Shipped model** (`final.joblib`, used by `tapzones test` and `tapzones free`):
   - soft vote of SVM + MLP + logistic regression + CNN: **82.1%** across sessions;
   - answers **45 ms after the hit**, computing in about **3.5 ms** (plus about 5 ms for
     the gate);

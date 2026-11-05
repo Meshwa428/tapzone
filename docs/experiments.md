@@ -14,9 +14,9 @@ updated: 2026-11-05
 The story behind these is in [[research]]; experiments still to come are in
 [[Research plan]].
 
-Every experiment in `research.py`, with its best result. Run any of them with
-`.venv/bin/python research.py NAME`. Every scored configuration (355 rows) is in
-`results.tsv`.
+Every experiment in `research/experiments.py`, with its best result. Run any of them with
+`python research/experiments.py NAME`. Every scored configuration (355 rows) is in
+`research/results/results.tsv`.
 
 **Columns:**
 - **pooled**: leave one session out, share of all 692 taps right. This is the headline.
@@ -101,9 +101,9 @@ leave one session out (→ `layout-results.tsv`). The details are in
 
 ```sh
 cd ~/Documents/Projects/tapzones
-.venv/bin/python research.py --list           # every experiment
-.venv/bin/python research.py baseline shifts  # run some; appends to results.tsv
-.venv/bin/python research.py --best 15        # leaderboard
+.venv/bin/python research/experiments.py --list           # every experiment
+.venv/bin/python research/experiments.py baseline shifts  # run some; appends to results/results.tsv
+.venv/bin/python research/experiments.py --best 15        # leaderboard
 ```
 
 `pool.npz` holds each pool model's out-of-session probabilities for every tap: keys

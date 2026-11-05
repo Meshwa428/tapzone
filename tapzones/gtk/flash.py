@@ -1,16 +1,14 @@
-#!/usr/bin/env python3
 """The flash feedback for desktops without the Omarchy plugin: a GTK
-front-end of the service (engine.py), `taps.py flash`.
+front-end of the service (service/engine.py), `tapzones flash`.
 
 Connects to the service's socket and, with feedback = "flash", briefly draws
 the section a tap landed in, or "not sure: tap again". Reconnects when the
 service restarts. On Omarchy the plugin (omarchy/Service.qml) does this
 instead, in the theme's colours.
 """
-import json, socket, threading, time
-import taps                       # restarts the process with layer-shell preloaded, once
-from taps import Gtk, GLib, Gdk, Layer, cairo, ACCENT, FG
-import engine
+import json, threading, time
+from . import Gtk, GLib, Gdk, Layer, cairo, ACCENT, FG, text, rounded
+from ..service import client
 
 FLASH_S = 0.45                    # how long a flash stays on screen
 
@@ -43,9 +41,7 @@ class Flash:
         """Events from the service, forever: reconnects every 2 s while it's down."""
         while True:
             try:
-                s = socket.socket(socket.AF_UNIX)
-                s.connect(engine.SOCKET)
-                f = s.makefile("rw")
+                f = client.connect().makefile("rw")
                 f.write(json.dumps({"cmd": "hello", "ui": True}) + "\n")
                 f.flush()
                 for line in f:
@@ -85,16 +81,16 @@ class Flash:
         a = max(0.0, 1 - (time.time() - self.since) / FLASH_S)
         cr.select_font_face("monospace", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         if rect is None:
-            taps.App.text(cr, label, w / 2, h / 2, 18, FG, 0.8 * a, center=True)
+            text(cr, label, w / 2, h / 2, 18, FG, 0.8 * a, center=True)
             return
         x, y, rw, rh = rect[0] * w, rect[1] * h, rect[2] * w, rect[3] * h
-        taps.App.rounded(cr, x + 6, y + 6, rw - 12, rh - 12, 14)
+        rounded(cr, x + 6, y + 6, rw - 12, rh - 12, 14)
         cr.set_source_rgba(*ACCENT, 0.16 * a)
         cr.fill_preserve()
         cr.set_source_rgba(*ACCENT, 0.85 * a)
         cr.set_line_width(3)
         cr.stroke()
-        taps.App.text(cr, label, x + rw / 2, y + rh / 2, 22, FG, a, center=True)
+        text(cr, label, x + rw / 2, y + rh / 2, 22, FG, a, center=True)
 
 
 def main():
@@ -102,7 +98,3 @@ def main():
     holder = []
     app.connect("activate", lambda a: holder.append(Flash(a)))
     app.run([])
-
-
-if __name__ == "__main__":
-    main()

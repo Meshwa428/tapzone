@@ -9,7 +9,7 @@ After=graphical-session.target pipewire-pulse.service
 
 [Service]
 WorkingDirectory=@APP@
-ExecStart=@PYTHON@ -u -W ignore @APP@/taps.py run
+ExecStart=@PYTHON@ -u -W ignore -m tapzones run
 Restart=on-failure
 RestartSec=3
 

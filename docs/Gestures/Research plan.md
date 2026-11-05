@@ -13,7 +13,7 @@ updated: 2026-11-05
 # Research plan for gestures
 
 Experiments to run before and while building the [[Gesture system]]. Each one becomes a
-`research.py` experiment and is logged, like everything in [[experiments]]. Scoring
+`research/experiments.py` experiment and is logged, like everything in [[experiments]]. Scoring
 follows the existing rules: **leave one session out**, and only taps or noises that
 would really reach the overlay ([[research#How every idea is scored]]).
 
@@ -96,7 +96,7 @@ would really reach the overlay ([[research#How every idea is scored]]).
 > [!example] Method
 > Score the current gate on the new recordings: what share of double, triple and
 > multi-finger taps does it turn away? Retrain with them as taps, then re-run
-> `research.py gate`.
+> `research/experiments.py gate`.
 
 - **Pass bar:** the gate keeps at least 97% of every gesture's taps, and its loud-noise
   rejection doesn't drop by more than 2 points ([[research#9. Tap or not a tap (the gate)]]).

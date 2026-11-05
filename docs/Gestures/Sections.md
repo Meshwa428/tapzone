@@ -19,7 +19,24 @@ more sections. A tap that lands in a section runs that section's command.
 
 ## Making a layout
 
-1. **Pick a preset.**
+1. **Pick how many sections, then a preset of that many.** The presets are every
+   layout straight cuts make for 1–5 sections (2, 6, 21 and 90 layouts for 2–5),
+   plus **corners + centre** (a centre section over the quadrants, so the four
+   corners wrap round it) and four layouts of 6.
+   A name like `1 / 2` stacks rows top to bottom (one section over two side by
+   side); `1 | 2` puts columns left to right (one beside two stacked). The editor
+   lists each count's **usual layout first** (top / bottom, 3 rows, quadrants,
+   corners + centre, 3 × 2 grid), then the rest **simplest first** (fewest, least
+   nested cuts): in the Omarchy editor as a carousel (‹ ›, click or drag a
+   neighbour), in both with **N** / **Shift+N** for the count (landing on its
+   usual layout) and **P** / **Shift+P** for the layout. Each shows its estimate.
+
+   > [!warning] The centre is the mic's weakest spot
+   > In corners + centre the Centre section estimates ≈ 43% on its own (≈ 74%
+   > overall, against ≈ 79% for quadrants): taps near the middle are the ones
+   > the mic places worst ([[#Rows beat columns]]).
+
+   The measured ones (leave-one-session-out on the recorded taps):
 
 | Preset | Sections | Single tap, measured | Notes |
 |---|---|---|---|
@@ -31,9 +48,8 @@ more sections. A tap that lands in a section runs that section's command.
 | 5 rows | 5 | 70.7% | Use with double taps, or with gaps ([[#Measured accuracy]]) |
 | 3 columns | 3 | 77.8% | Weaker than 3 rows: see [[#Rows beat columns]] |
 
-2. **Adjust or draw** in the layout editor (`taps.py layout`):
-   - press **P** / **Shift+P** to step through the presets;
-   - drag on empty screen to draw a new rectangle;
+2. **Adjust it** in the layout editor (`tapzones layout`, or the Omarchy editor):
+   - new sections can't be drawn: every layout starts from a preset;
    - drag inside a section to move it, or near its edge to resize it;
    - right-click a section to delete it;
    - type its **Name** and **Command** in the panel at the bottom.
@@ -64,7 +80,7 @@ so they are rough. The direction is consistent with every other measurement.
 
 ## Measured accuracy
 
-Measured by `research.py layouts`: SVM on the signed waveform, leave one session out,
+Measured by `research/experiments.py layouts`: SVM on the signed waveform, leave one session out,
 868 taps from 14 sessions. Results are in `layout-results.tsv`.
 
 | k | k rows | k columns |
@@ -95,7 +111,7 @@ What wins accuracy back:
 | 3 columns | 78.6% | | 89.4% | 91.7% |
 | 5 rows | 71.0% | | 78.9% | 83.5% |
 
-The double- and triple-tap columns are simulated from single taps (`research.py
+The double- and triple-tap columns are simulated from single taps (`research/experiments.py
 double_sim`), see [[Multi-tap#Combining the taps' evidence]]. Wide gaps in 5 rows leave
 the middle bands with too few recorded taps to measure.
 
@@ -128,7 +144,7 @@ What the section system does about it:
 A dead zone is any part of the screen not covered by a section. A tap there runs
 nothing.
 
-What was built is a **section classifier** (`ml.py --export-sections GESTURE`). It's
+What was built is a **section classifier** (`tapzones train sections GESTURE`). It's
 trained on taps labelled with the user's sections, and it drops recorded taps that fall
 in gaps. A tap that really lands in a gap still gets the nearest section's name. But
 gaps keep the hardest taps (the ones on borders) out of training and out of the

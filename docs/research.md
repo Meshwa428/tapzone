@@ -33,7 +33,7 @@ Every experiment is listed in [[experiments]]. The plans built on these findings
 
 ## How every idea is scored
 
-Every model is scored the same way (`research.py`):
+Every model is scored the same way (`research/experiments.py`):
 
 - **Leave one session out.** Train on all sessions but one, test on the one left out,
   and repeat for each session. The headline number is the share of all taps answered
@@ -204,7 +204,7 @@ kept only for the visual `locate` mode.
 The quadrant model must answer one of four quadrants: its confidence is spread over
 the quadrants only, so it can't say "none of these". A table knock was answered as
 "top-left, 92%". A separate model, the **gate**, now asks first whether the sound was
-a screen tap at all (`research.py gate`, `ml.py --export-gate`).
+a screen tap at all (`research/experiments.py gate`, `tapzones train gate`).
 
 **How it is scored.** Only noises loud enough to fire the overlay's detector count:
 259 of 2,019 noise windows. The rest are quiet, and an early version of the gate scored

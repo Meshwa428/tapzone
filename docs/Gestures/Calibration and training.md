@@ -56,7 +56,7 @@ The overlay retrains when the layout changes. From the timing measurements of
 
 ## New recording modes
 
-`taps.py collect` gains a gesture option. Each saved tap gets two new fields:
+`tapzones collect` gains a gesture option. Each saved tap gets two new fields:
 
 | Field | Meaning |
 |---|---|
@@ -85,7 +85,7 @@ Modes:
 
 - Multi-finger and multi-tap recordings are **taps** for the gate, so they are added
   to its tap data.
-- Then run `research.py gate` and `ml.py --export-gate` as today
+- Then run `research/experiments.py gate` and `tapzones train gate` as today
   ([[training#The tap-or-not gate (noise)]]).
 
 ## Files

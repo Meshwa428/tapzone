@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Every idea for hearing the quadrant, scored the same way, logged.
 
-    .venv/bin/python research.py EXPERIMENT…    run them, append to results.tsv
-    .venv/bin/python research.py --list         what experiments exist
-    .venv/bin/python research.py --best [N]     the N best rows so far
+    python research/experiments.py EXPERIMENT…   run them, append to results/results.tsv
+    python research/experiments.py --list        what experiments exist
+    python research/experiments.py --best [N]    the N best rows so far
 
 The exam: leave one session out over every session (pooled accuracy over all
 taps is the headline, chance 25%), plus grid → random inside the balanced
@@ -21,18 +21,18 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier, HistGradientBoostingClassifier
 from sklearn.neural_network import MLPClassifier
-import ml
+from tapzones import audio, features, paths, train as tz
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
 RESULTS = os.path.join(HERE, "results.tsv")
-SR, HOP = ml.SR, ml.HOP
+SR, HOP = audio.SR, audio.HOP
 
 
 def load():
     """[(name, stereo windows (n, 8400, 2), labels, source, where)] for every
     session; `where` is each tap's spot as screen fractions."""
     out = []
-    for path in ml.session_paths():
+    for path in tz.session_paths():
         d = np.load(path)
         y = d["labels"] if "labels" in d else d["truth"]
         src = d["source"] if "source" in d else np.full(len(y), "")
@@ -53,7 +53,7 @@ RAND = (SESSION == BAL) & (np.concatenate([s for *_, s in S]) == "random")
 
 # ------------------------------------------------------------- features
 
-from ml import channel, starts, lowpass, signed, BEST1
+from tapzones.features import starts, lowpass, signed, BEST1
 
 # --------------------------------------------------------------- models
 
@@ -355,13 +355,13 @@ def modes():
 
 
 class TorchCNN:
-    """ml.cnn as a scikit-learn style model: `seeds` copies, probabilities
+    """features.cnn as a scikit-learn style model: `seeds` copies, probabilities
     averaged. One thread each, the exam runs four folds at once."""
     def __init__(self, epochs=40, seeds=3):
         self.epochs, self.seeds = epochs, seeds
 
     def fit(self, X, y):
-        self.nets = [ml.train_cnn(X.astype(np.float32), np.asarray(y), s, self.epochs, threads=1) for s in range(self.seeds)]
+        self.nets = [tz.train_cnn(X.astype(np.float32), np.asarray(y), s, self.epochs, threads=1) for s in range(self.seeds)]
         return self
 
     def proba(self, X):
@@ -374,7 +374,7 @@ class TorchCNN:
         return self.proba(X).argmax(1)
 
 
-WAVE = ml.WAVE
+WAVE = features.WAVE
 
 @experiment
 def cnn():
@@ -628,7 +628,7 @@ def torsion():
     ax[1].set(title="Spectrum of left − right, 8–36 ms", xlabel="Hz")
     ax[1].legend()
     fig.tight_layout()
-    fig.savefig(os.path.join(ml.DATA, "torsion.png"), dpi=80)
+    fig.savefig(os.path.join(paths.DATA, "torsion.png"), dpi=80)
 
 
 def late(W, a=8, b=36, shift=0):
@@ -666,7 +666,6 @@ def best3():
 @experiment
 def axes():
     F, extra, Wa = best3()
-    Wx = [None] * len(BEST_SHIFTS) + Wa              # what each extra copy was made from
     L = late(W_ALL)
     Lx = [late(W_ALL, shift=s) for s in BEST_SHIFTS] + [late(w) for w in Wa]
     both = np.hstack([F, L])
@@ -859,13 +858,13 @@ def pool_cnn():
 def cutoff():
     """The shipped ensemble's (svm + mlp + logistic + cnn) accuracy when it
     only answers its surest taps, from pool.npz (run `pool pool_cnn` first,
-    on the current data). Pick ml.CUTOFF from this table."""
+    on the current data). Pick features.CUTOFF from this table."""
     p = np.load(os.path.join(HERE, "pool.npz"))
     if len(p["svm|P"]) != len(Y_ALL):
-        sys.exit(f"pool.npz is from {len(p['svm|P'])} taps, the data now has {len(Y_ALL)}: run `research.py pool pool_cnn` first")
+        sys.exit(f"pool.npz is from {len(p['svm|P'])} taps, the data now has {len(Y_ALL)}: run `research/experiments.py pool pool_cnn` first")
     P = np.mean([p[k + "|P"] for k in ("svm", "mlp", "logistic", "cnn")], axis=0)
     conf, ok = P.max(1), P.argmax(1) == Y_ALL
-    print(f"\n== cutoff (svm+mlp+logistic+cnn, out-of-session, {len(Y_ALL)} taps; ml.CUTOFF is {ml.CUTOFF})")
+    print(f"\n== cutoff (svm+mlp+logistic+cnn, out-of-session, {len(Y_ALL)} taps; features.CUTOFF is {features.CUTOFF})")
     print(f"  {'answer':>7}  {'cutoff':>7}  {'right':>7}  {'refused taps were right':>24}")
     for keep in (1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6):
         c = np.quantile(conf, 1 - keep)
@@ -916,7 +915,7 @@ def layouts():
     """docs/Gestures/Research plan.md #1: every tap relabelled by the section
     its `where` falls in, for row, column and grid layouts, scored leave
     one session out (svm on best2). → layout-results.tsv"""
-    import gestures as g
+    from tapzones import layout as g
     F, extra = best2()
     svm = models(("svm",))["svm"]
     print(f"\n== layouts ({len(Y_ALL)} taps, svm on best2; per section: accuracy (taps))")
@@ -933,7 +932,7 @@ def dead_zones():
     """docs/Gestures/Research plan.md #2: a dead zone of width gap along every
     inner border. Trained and scored only on taps outside the dead zones, as
     if people aimed for the sections. → layout-results.tsv"""
-    import gestures as g
+    from tapzones import layout as g
     F, extra = best2()
     svm = models(("svm",))["svm"]
     print(f"\n== dead zones ({len(Y_ALL)} taps, svm on best2)")
@@ -950,7 +949,7 @@ def double_sim():
     """docs/Gestures/Research plan.md #3: simulated double and triple taps.
     Out-of-session probabilities per tap, then taps of the same section and
     session grouped in twos and threes, probabilities multiplied."""
-    import gestures as g
+    from tapzones import layout as g
     F, extra = best2()
     svm = lambda: make_pipeline(StandardScaler(), SVC(C=3, probability=True, random_state=0))
     print(f"\n== double_sim ({len(Y_ALL)} taps, svm on best2 with probabilities)")
@@ -980,23 +979,23 @@ def gate():
     """Tap or not, on the early window. Taps: what share gets through, each
     scored by a gate that never saw its session. Noise: leave one recording
     out, and only the noises loud enough to fire the detector count. Every
-    gate keeps the same share of taps (ml.GATE_KEEP), so the noise numbers
+    gate keeps the same share of taps (tz.GATE_KEEP), so the noise numbers
     compare directly. → gate-results.tsv"""
-    T, tg, N, ng = ml.gate_data()
-    loud = ml.would_fire(N)
+    T, tg, N, ng = tz.gate_data()
+    loud = tz.would_fire(N)
     recs = list(dict.fromkeys(ng))
-    PT, PN = ml.gate_parts(T), ml.gate_parts(N)
+    PT, PN = features.gate_parts(T), features.gate_parts(N)
     feats = {"jagged": ("jagged",), "spectrum+jagged": ("spectrum", "jagged"),
              "shape+spectrum": ("shape", "spectrum"), "shape+spectrum+jagged": ("shape", "spectrum", "jagged")}
     makers = {"logistic": lambda: make_pipeline(StandardScaler(), LogisticRegression(C=0.3, max_iter=5000, class_weight="balanced")),
-              "svm": ml.gate_model}
+              "svm": tz.gate_model}
     print(f"\n== gate ({len(T)} taps · {len(N)} noise windows, {loud.sum()} loud enough to fire: "
           + ", ".join(f"{r.removeprefix('noise-')} {(loud & (ng == r)).sum()}" for r in recs) + ")")
     new = not os.path.exists(GATE_RESULTS)
     for label, parts in feats.items():
         FT = np.hstack([PT[p] for p in parts]); FN = np.hstack([PN[p] for p in parts])
         for name, make in makers.items():
-            thr = np.quantile(ml.tap_scores(FT, tg, FN, make), 1 - ml.GATE_KEEP)
+            thr = np.quantile(tz.tap_scores(FT, tg, FN, make), 1 - tz.GATE_KEEP)
             rejected = []
             for r in recs:
                 keep = ng != r
@@ -1009,7 +1008,7 @@ def gate():
                 if new:
                     f.write("time\tfeatures\tmodel\ttaps_kept\toverall_rejected\tper_recording\ttaps\tloud_noise\n")
                     new = False
-                f.write(f"{time.strftime('%H:%M:%S')}\t{label}\t{name}\t{ml.GATE_KEEP}\t{overall:.4f}\t"
+                f.write(f"{time.strftime('%H:%M:%S')}\t{label}\t{name}\t{tz.GATE_KEEP}\t{overall:.4f}\t"
                         + ",".join(f"{r}={x:.3f}" for r, x in zip(recs, rejected)) + f"\t{len(T)}\t{loud.sum()}\n")
             print(f"  {label:24} {name:9} loud noise rejected {overall:6.1%}  | "
                   + "  ".join(f"{r.removeprefix('noise-')[:15]} {x:4.0%}" for r, x in zip(recs, rejected)), flush=True)
@@ -1059,7 +1058,7 @@ def errors():
     a.axvline(0.5, color="#888"); a.axhline(0.5, color="#888"); a.invert_yaxis(); a.legend()
     a.set(title="Where the left/right mistakes are")
     fig.tight_layout()
-    fig.savefig(os.path.join(ml.DATA, "errors.png"), dpi=80)
+    fig.savefig(os.path.join(paths.DATA, "errors.png"), dpi=80)
 
 
 if __name__ == "__main__":

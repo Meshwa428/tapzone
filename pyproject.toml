@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tapzones"
+dynamic = ["version"]
+description = "Tap the screen of a laptop with no touchscreen: the built-in mic hears which section you tapped and runs its command."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Meshwa" }]
+requires-python = ">=3.11"
+# The service, the editor's estimate and section training. The GTK front-ends
+# also need the system's PyGObject, GTK 4 and gtk4-layer-shell (install.sh
+# makes the venv with --system-site-packages for them).
+dependencies = [
+  "numpy>=2",
+  "scipy>=1.13",
+  "scikit-learn>=1.9",
+  "joblib>=1.4",
+]
+
+[project.optional-dependencies]
+# The overlay's final ensemble (its CNNs), tapzones train final/signed,
+# research/ and its plots. install.sh --full adds these.
+full = ["torch>=2.4", "matplotlib>=3.8"]
+
+[project.scripts]
+tapzones = "tapzones.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/Meshwa428/tapzone"
+
+[tool.setuptools.dynamic]
+version = { attr = "tapzones.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["tapzones*"]

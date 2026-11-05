@@ -102,6 +102,29 @@ also read fine on GitHub.
 | [Gesture system](docs/Gestures/Gesture%20system.md) | Sections, dead zones, the planned gestures |
 | [research](docs/research.md) | What the mic can and can't hear, and why |
 
+## Repository layout
+
+```
+tapzones/            the Python package: `tapzones` is tapzones/__main__.py
+  audio.py           the mic and the tap detector
+  features.py        what the models hear in a tap
+  layout.py          sections, presets, the editor's live estimate
+  config.py          ~/.config/tapzones/gestures.toml
+  models.py          the gate and section models the service runs
+  train.py           tapzones train …
+  service/           the headless service and its socket client
+  gtk/               the GTK overlay, layout editor and flash (other desktops)
+omarchy/             the Omarchy shell plugin (manifest.json is at the root)
+systemd/             unit templates, filled in by install.sh
+research/            experiments, plots, and their logged results
+tests/               python -m unittest discover -s tests
+docs/                the Obsidian vault
+```
+
+For development: `uv venv --system-site-packages .venv && uv pip install --python
+.venv/bin/python -e '.[full]'`, then `.venv/bin/tapzones …`
+([usage](docs/usage.md#Environment)).
+
 ## Publishing changes
 
 ```bash

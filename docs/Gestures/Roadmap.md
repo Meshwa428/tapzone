@@ -18,10 +18,10 @@ ends with something usable.
 ## Phase 1: Know which layouts work
 
 > [!success] Done: uses existing data only
-> - [x] `research.py layouts`: [[Research plan#1. Score layouts from existing taps]]
-> - [x] `research.py dead_zones`: [[Research plan#2. Dead zones]]
-> - [x] `research.py double_sim`: [[Research plan#3. Combining the taps of a double tap]]
-> - [x] Add `locate-*.npz` to `ml.session_paths()` for border coverage
+> - [x] `research/experiments.py layouts`: [[Research plan#1. Score layouts from existing taps]]
+> - [x] `research/experiments.py dead_zones`: [[Research plan#2. Dead zones]]
+> - [x] `research/experiments.py double_sim`: [[Research plan#3. Combining the taps of a double tap]]
+> - [x] Add `locate-*.npz` to `train.session_paths()` for border coverage
 > - [x] Put the measured tables into [[Sections#Measured accuracy]] and [[experiments]]
 >
 > The finding: 5 rows is 70.7% for single taps, not "good", so 5 is a ceiling, not a
@@ -33,14 +33,14 @@ ends with something usable.
 
 > [!todo] The fix for the centre problem
 > - [x] `~/.config/tapzones/gestures.toml` loader and validation ([[Configuration]]):
->       `gestures.py`
+>       `tapzones/config.py`
 > - [x] Section model: relabel, train, save with the layout hash
->       (`ml.py --export-sections single`, [[Calibration and training]])
+>       (`tapzones train sections single`, [[Calibration and training]])
 > - [x] Dead zones ([[Sections#Dead zones]])
 > - [ ] The border veto (needs a better x model)
-> - [x] Layout editor in the overlay (`taps.py layout`): presets, drag to draw, move
->       and resize, the live accuracy estimate ([[Sections#Making a layout]])
-> - [x] Background service (`taps.py run`, `tapzones.service`): runs each section's
+> - [x] Layout editor in the overlay (`tapzones layout`): presets (no drawing new
+>       sections), move and resize, the live accuracy estimate ([[Sections#Making a layout]])
+> - [x] Background service (`tapzones run`, `tapzones.service`): runs each section's
 >       command, with flash or notification feedback
 > - [ ] Test rounds use the user's layout instead of quadrants
 

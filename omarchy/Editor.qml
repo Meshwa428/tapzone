@@ -7,15 +7,17 @@ import qs.Ui
 import "Layout.js" as Layout
 
 // The layout editor (docs/Gestures/Sections.md), in the shell: the same
-// editor as `taps.py layout`, drawn in the theme. Pick a gesture, start from
-// a preset or drag out sections, name them and give each a command. Every
+// editor as `tapzones layout`, drawn in the theme. Pick a gesture, how many
+// sections, and one of the preset layouts of that many (best estimate first),
+// adjust its sections, name them and give each a command. New sections
+// can't be drawn: layouts come only from the presets. Every
 // section shows how well the mic tells it apart, estimated live from the
 // recorded taps. Save hands the config to the service, which writes
 // gestures.toml and trains the section model.
 //
-// Mouse: drag on empty screen draws a section · drag inside one moves it ·
-//        drag its edge resizes it · right-click deletes it
-// Keys:  1–5 gesture · P / Shift+P preset · E on/off · F feedback ·
+// Mouse: drag inside a section moves it · drag its edge resizes it ·
+//        right-click deletes it
+// Keys:  1–5 gesture · N / Shift+N sections · P / Shift+P layout · E on/off · F feedback ·
 //        Delete remove · U undo · S save · Esc close
 Item {
   id: root
@@ -40,7 +42,7 @@ Item {
   // Edits change cfg in place; bumping rev re-evaluates what depends on it.
   property int rev: 0
 
-  readonly property var zoneColors: ["#e06b75", "#e6bf7a", "#99c278", "#61b0f0"]
+  readonly property var zoneColors: ["#e06b75", "#e6bf7a", "#99c278", "#61b0f0", "#c49be8", "#6fd1c4"]
   readonly property color good: "#8cd980"
   readonly property color mid: "#ebbf6b"
   readonly property color bad: "#f26161"
@@ -50,6 +52,10 @@ Item {
   readonly property bool dirty: (root.rev, root.cfg !== null && JSON.stringify(root.cfg) !== root.savedJson)
   readonly property var estimate: (root.rev, root.svc && root.svc.estimate && root.cfg)
     ? Layout.quickEstimate(root.svc.estimate, Layout.layoutOf(root.sections)) : null
+  readonly property int count: (root.rev, root.cfg ? root.sections.length : 0)
+  readonly property string preset: (root.rev, root.cfg ? Layout.presetOf(root.sections) : "")
+  // The layouts with as many sections as now, the usual one first, then the simplest.
+  readonly property var choices: Layout.choicesFor(root.svc ? root.svc.estimate : null, root.count)
 
   function touch() { root.rev++ }
   function grade(a) { return a >= 0.85 ? root.good : a >= 0.7 ? root.mid : root.bad }
@@ -61,6 +67,9 @@ Item {
     var st = root.svc && root.svc.online ? root.svc.state : null
     root.cfg = st ? Layout.clone(st.config) : null
     root.savedJson = root.cfg ? JSON.stringify(root.cfg) : ""
+    root.serviceConfig = st ? root.canon(st.config) : ""
+    root.sendingJson = ""
+    root.drag = null
     root.gesture = "single"
     root.history = []
     root.quitArmed = false
@@ -91,8 +100,42 @@ Item {
     else root.open("{}")
   }
 
+  // The config as JSON with sorted keys: the service may send the same config
+  // back with its keys in another order.
+  function canon(v) {
+    return JSON.stringify(v, function(k, x) {
+      if (!x || typeof x !== "object" || Array.isArray(x)) return x
+      var o = {}
+      Object.keys(x).sort().forEach(function(key) { o[key] = x[key] })
+      return o
+    })
+  }
+
+  property string serviceConfig: ""    // canon() of the service's config as last seen
+
   Connections {
     target: root.svc
+    // The config changed somewhere else while the editor is open (the CLI,
+    // the GTK editor, a socket save): take it, or at least don't save over
+    // it without saying so.
+    function onStateChanged() {
+      var st = root.svc.state
+      if (!root.opened || !st || !st.config) return
+      var now = root.canon(st.config)
+      if (now === root.serviceConfig) return
+      root.serviceConfig = now
+      if (root.sendingJson && now === root.canon(JSON.parse(root.sendingJson))) return   // our own save
+      if (!root.cfg || !root.dirty) {
+        root.cfg = Layout.clone(st.config)
+        root.savedJson = JSON.stringify(root.cfg)
+        root.history = []
+        root.select(-1)
+        root.touch()
+        root.say("the config changed outside the editor: reloaded")
+      } else {
+        root.say("the config changed outside the editor: Save will replace that change with yours")
+      }
+    }
     function onEvent(msg) {
       if (!root.opened) return
       if (msg.event === "saved") {
@@ -156,11 +199,29 @@ Item {
     root.touch()
   }
 
-  function stepPreset(step) {
+  function choose(name) {
+    if (name === root.preset) return
     root.remember()
-    root.cfg[root.gesture].sections = Layout.stepPreset(root.sections, step)
+    root.cfg[root.gesture].sections = Layout.applyPreset(root.sections, name)
     root.select(-1)
     root.touch()
+  }
+
+  // The next (1) or previous (-1) layout with as many sections.
+  function stepPreset(step) {
+    var names = root.choices.map(function(c) { return c.name })
+    var cur = names.indexOf(root.preset)
+    root.choose(names[cur < 0 ? 0 : (cur + step + names.length) % names.length])
+  }
+
+  // n sections: the usual layout of n.
+  function setCount(n) {
+    if (n !== root.count) root.choose(Layout.BY_COUNT[n][0])
+  }
+
+  function stepCount(step) {
+    var c = Layout.COUNTS, k = c.indexOf(root.count)
+    root.setCount(c[k < 0 ? 0 : (k + step + c.length) % c.length])
   }
 
   function toggleEnabled() {
@@ -170,9 +231,14 @@ Item {
   }
 
   function cycleFeedback() {
-    root.remember()
     var f = Layout.FEEDBACK
-    root.cfg.feedback = f[(f.indexOf(root.cfg.feedback) + 1) % f.length]
+    root.setFeedback(f[(f.indexOf(root.cfg.feedback) + 1) % f.length])
+  }
+
+  function setFeedback(v) {
+    if (!root.cfg || root.cfg.feedback === v) return
+    root.remember()
+    root.cfg.feedback = v
     root.touch()
   }
 
@@ -224,17 +290,15 @@ Item {
 
   function dragBegin(x, y) {
     var hitAt = root.hit(x, y)
-    root.remember()
-    var start = [x / surface.width, y / surface.height]
-    if (hitAt[0] < 0) {
-      root.drag = { mode: "draw", start: start, px: [x, y], index: -1 }
-      root.select(-1)
-    } else {
-      root.select(hitAt[0])
-      root.drag = { mode: hitAt[2] ? "resize" : "move", edges: hitAt[1], index: hitAt[0], start: start,
-                    orig: root.sections[hitAt[0]].rect.slice() }
-    }
     keyCatcher.forceActiveFocus()
+    if (hitAt[0] < 0) {                // empty screen: sections come from the presets, not drawn
+      root.select(-1)
+      return
+    }
+    root.remember()
+    root.select(hitAt[0])
+    root.drag = { mode: hitAt[2] ? "resize" : "move", edges: hitAt[1], index: hitAt[0],
+                  start: [x / surface.width, y / surface.height], orig: root.sections[hitAt[0]].rect.slice() }
   }
 
   function dragUpdate(x, y) {
@@ -242,17 +306,7 @@ Item {
     if (!d) return
     var fx = x / surface.width, fy = y / surface.height, s = root.sections, i = d.index
     var snap = function(v, axis) { return Layout.snap(v, axis, s, i) }
-    if (d.mode === "draw") {
-      if (i < 0) {
-        if (Math.abs(x - d.px[0]) < 8 && Math.abs(y - d.px[1]) < 8) return
-        s.push({ name: "Section " + (s.length + 1), rect: [0, 0, 0, 0], command: "" })
-        i = d.index = s.length - 1
-        root.select(i)
-      }
-      var ax = [snap(d.start[0], 0), snap(fx, 0)].sort(function(a, b) { return a - b })
-      var ay = [snap(d.start[1], 1), snap(fy, 1)].sort(function(a, b) { return a - b })
-      s[i].rect = [ax[0], ay[0], ax[1] - ax[0], ay[1] - ay[0]]
-    } else if (d.mode === "move") {
+    if (d.mode === "move") {
       var w = d.orig[2], h = d.orig[3]
       var nx = Math.min(Math.max(d.orig[0] + fx - d.start[0], 0), 1 - w)
       var ny = Math.min(Math.max(d.orig[1] + fy - d.start[1], 0), 1 - h)
@@ -278,10 +332,6 @@ Item {
     var d = root.drag
     root.drag = null
     if (!d) return
-    if (d.index < 0) {                 // a click on empty screen: nothing changed
-      root.history = root.history.slice(0, -1)
-      return
-    }
     var bad = Layout.problems(root.cfg, root.gesture).filter(function(p) {
       return p.indexOf("overlap") >= 0 || p.indexOf("smaller") >= 0
     })
@@ -290,11 +340,8 @@ Item {
       root.say(bad[0])
       return
     }
-    if (d.mode !== "draw" && Layout.sameRect(d.orig, root.sections[d.index].rect))
+    if (Layout.sameRect(d.orig, root.sections[d.index].rect))
       root.history = root.history.slice(0, -1)    // just selected it
-    if (root.sections.length > root.cfg.max_sections)
-      root.say(root.sections.length + " sections: more than the recommended " + root.cfg.max_sections
-               + ". Raise max_sections in gestures.toml to save it")
     root.touch()
   }
 
@@ -313,6 +360,18 @@ Item {
     if (m.ok) return "trained: " + Layout.pct(m.accuracy) + " right across sessions; answers "
                      + Layout.pct(m.answered) + " of taps, " + Layout.pct(m.answered_accuracy) + " of those right"
     return "saved, but not trained for this layout: S trains it"
+  }
+
+  // stateLine in a word or two, for the header's caption.
+  readonly property string stateWord: {
+    root.rev
+    var st = root.svc && root.svc.online ? root.svc.state : null
+    if (!st || !root.cfg) return ""
+    if (st.detected.indexOf(root.gesture) < 0) return "not heard yet"
+    if (!root.cfg[root.gesture].enabled) return "off"
+    if (st.training) return "training"
+    if (root.dirty) return "unsaved"
+    return st.model.ok ? "trained" : "not trained"
   }
 
   readonly property string estimateLine: {
@@ -357,6 +416,7 @@ Item {
           if (!root.cfg) return
           if (k >= Qt.Key_1 && k <= Qt.Key_5) root.setGesture(Layout.GESTURES[k - Qt.Key_1])
           else if (k === Qt.Key_P) root.stepPreset(event.modifiers & Qt.ShiftModifier ? -1 : 1)
+          else if (k === Qt.Key_N) root.stepCount(event.modifiers & Qt.ShiftModifier ? -1 : 1)
           else if (k === Qt.Key_E) root.toggleEnabled()
           else if (k === Qt.Key_F) root.cycleFeedback()
           else if (k === Qt.Key_Delete || k === Qt.Key_Backspace) root.remove(root.selected)
@@ -374,7 +434,7 @@ Item {
         cursorShape: {
           if (root.drag) return root.drag.mode === "move" ? Qt.ClosedHandCursor : Qt.CrossCursor
           var h = root.hit(mouseX, mouseY)
-          if (h[0] < 0) return Qt.CrossCursor
+          if (h[0] < 0) return Qt.ArrowCursor
           var e = h[1]
           if ((e.l && e.t) || (e.r && e.b)) return Qt.SizeFDiagCursor
           if ((e.r && e.t) || (e.l && e.b)) return Qt.SizeBDiagCursor
@@ -386,73 +446,94 @@ Item {
           if (mouse.button === Qt.RightButton) root.remove(root.hit(mouse.x, mouse.y)[0])
           else root.dragBegin(mouse.x, mouse.y)
         }
-        onPositionChanged: function(mouse) { if (root.drag) root.dragUpdate(mouse.x, mouse.y) }
+        // Only while the button is down: a drag whose release never came must
+        // not keep moving the section with the bare pointer.
+        onPositionChanged: function(mouse) {
+          if (!root.drag) return
+          if (mouse.buttons & Qt.LeftButton) root.dragUpdate(mouse.x, mouse.y)
+          else root.dragEnd()
+        }
         onReleased: function(mouse) { if (mouse.button === Qt.LeftButton) root.dragEnd() }
+        onCanceled: root.dragEnd()     // Hyprland can take the pointer mid-drag
       }
 
       // ------------------------------------------------------- sections
 
-      Repeater {
-        model: root.sections.length
-        delegate: Rectangle {
-          id: zone
-          required property int index
-          readonly property var s: (root.rev, root.sections[index])
-          readonly property var est: root.estimate && index < root.estimate.per.length ? root.estimate.per[index] : null
-          readonly property bool on: root.cfg[root.gesture].enabled
-          readonly property color tint: root.zoneColors[index % root.zoneColors.length]
-          readonly property bool isSelected: index === root.selected
+      // The tiles get a layer of their own, so a section raised over the
+      // others (z) still stays under the header and the details panel.
+      Item {
+        anchors.fill: parent
 
-          visible: s !== undefined
-          x: s ? s.rect[0] * surface.width + 3 : 0
-          y: s ? s.rect[1] * surface.height + 3 : 0
-          width: s ? Math.max(0, s.rect[2] * surface.width - 6) : 0
-          height: s ? Math.max(0, s.rect[3] * surface.height - 6) : 0
-          radius: Style.space(10)
-          color: Util.alpha(tint, on ? 0.14 : 0.05)
-          border.color: isSelected ? Commons.Color.accent : Util.alpha(tint, 0.5)
-          border.width: isSelected ? 3 : 1.5
-
-          Column {
-            anchors.centerIn: parent
-            width: parent.width - Style.spacing.xl * 2
-            spacing: Style.spacing.xs
-
-            Text {
-              width: parent.width
-              horizontalAlignment: Text.AlignHCenter
-              elide: Text.ElideRight
-              text: zone.s ? zone.s.name : ""
-              color: Util.alpha(Commons.Color.foreground, zone.on ? 0.95 : 0.4)
-              font.family: Style.font.menuFamily
-              font.pixelSize: Style.font.title
-            }
-            Text {
-              width: parent.width
-              horizontalAlignment: Text.AlignHCenter
-              elide: Text.ElideMiddle
-              text: zone.s && zone.s.command ? zone.s.command : "no command"
-              color: Util.alpha(Commons.Color.foreground, zone.s && zone.s.command ? 0.55 : 0.3)
-              font.family: Style.font.menuFamily
-              font.pixelSize: Style.font.caption
-            }
-            Text {
-              width: parent.width
-              horizontalAlignment: Text.AlignHCenter
-              visible: zone.est !== null
-              text: !zone.est ? "" : isNaN(zone.est.acc) ? "only " + zone.est.n + " recorded taps here" : "≈ " + Layout.pct(zone.est.acc)
-              color: !zone.est || isNaN(zone.est.acc) ? root.bad : root.grade(zone.est.acc)
-              font.family: Style.font.menuFamily
-              font.pixelSize: !zone.est || isNaN(zone.est.acc) ? Style.font.bodySmall : Style.font.display
-            }
-            Text {
-              width: parent.width
-              horizontalAlignment: Text.AlignHCenter
-              visible: zone.est !== null && !isNaN(zone.est.acc)
-              text: zone.est ? zone.est.n + " taps" : ""
-              color: Util.alpha(Commons.Color.foreground, 0.4)
-              font.family: Style.font.menuFamily
-              font.pixelSize: Style.font.caption
+        Repeater {
+          model: root.sections.length
+          delegate: Rectangle {
+            id: zone
+            required property int index
+            // Edits change the section in place, and a var property that gets the
+            // same object back doesn't notify, so copy it: the tile then follows
+            // a drag as it happens.
+            readonly property var s: (root.rev, root.sections[index] ? Object.assign({}, root.sections[index]) : undefined)
+            readonly property var est: root.estimate && index < root.estimate.per.length ? root.estimate.per[index] : null
+            readonly property bool on: root.cfg[root.gesture].enabled
+            readonly property color tint: root.zoneColors[index % root.zoneColors.length]
+            readonly property bool isSelected: index === root.selected
+  
+            readonly property bool over: s !== undefined && s.over === true
+  
+            visible: s !== undefined
+            // A section that sits over the others is drawn on top, solid, so
+            // the ones under it read as the shapes they really are.
+            z: over ? 1 : 0
+            x: s ? s.rect[0] * surface.width + 3 : 0
+            y: s ? s.rect[1] * surface.height + 3 : 0
+            width: s ? Math.max(0, s.rect[2] * surface.width - 6) : 0
+            height: s ? Math.max(0, s.rect[3] * surface.height - 6) : 0
+            radius: Style.cornerRadius
+            color: over ? Qt.tint(panel.color, Util.alpha(tint, on ? 0.14 : 0.05)) : Util.alpha(tint, on ? 0.14 : 0.05)
+            border.color: isSelected ? Commons.Color.accent : Util.alpha(tint, 0.5)
+            border.width: isSelected ? 3 : 1.5
+  
+            Column {
+              anchors.centerIn: parent
+              width: parent.width - Style.spacing.xl * 2
+              spacing: Style.spacing.xs
+  
+              Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                text: zone.s ? zone.s.name : ""
+                color: Util.alpha(Commons.Color.foreground, zone.on ? 0.95 : 0.4)
+                font.family: Style.font.menuFamily
+                font.pixelSize: Style.font.title
+              }
+              Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideMiddle
+                text: zone.s && zone.s.command ? zone.s.command : "no command"
+                color: Util.alpha(Commons.Color.foreground, zone.s && zone.s.command ? 0.55 : 0.3)
+                font.family: Style.font.menuFamily
+                font.pixelSize: Style.font.caption
+              }
+              Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                visible: zone.est !== null
+                text: !zone.est ? "" : isNaN(zone.est.acc) ? "only " + zone.est.n + " recorded taps here" : "≈ " + Layout.pct(zone.est.acc)
+                color: !zone.est || isNaN(zone.est.acc) ? root.bad : root.grade(zone.est.acc)
+                font.family: Style.font.menuFamily
+                font.pixelSize: !zone.est || isNaN(zone.est.acc) ? Style.font.bodySmall : Style.font.display
+              }
+              Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                visible: zone.est !== null && !isNaN(zone.est.acc)
+                text: zone.est ? zone.est.n + " taps" : ""
+                color: Util.alpha(Commons.Color.foreground, 0.4)
+                font.family: Style.font.menuFamily
+                font.pixelSize: Style.font.caption
+              }
             }
           }
         }
@@ -460,143 +541,449 @@ Item {
 
       // --------------------------------------------------------- header
 
-      Rectangle {
+      // Framed like the shell's own popups. Top to bottom, most important
+      // first: what you're editing and how well it will work, then which
+      // gesture, then its settings, then status and the actions.
+      BorderSurface {
         id: header
+        readonly property color fg: Commons.Color.popups.text
+        readonly property real pad: Style.spacing.popupPadding
+
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
         anchors.topMargin: Style.space(24)
-        width: Math.min(parent.width - Style.space(32), headerColumn.implicitWidth + Style.spacing.xl * 4)
-        height: headerColumn.implicitHeight + Style.spacing.xl * 2
-        radius: Style.space(12)
-        color: Commons.Color.menu.background
-        border.color: Util.alpha(Commons.Color.menu.border, 0.25)
+        width: Math.min(parent.width - Style.space(32), headerColumn.width + pad * 2)
+        height: headerColumn.implicitHeight + pad * 2
+        radius: Style.cornerRadius
+        color: Commons.Color.popups.background
+        borderSpec: Border.localOrSurfaceSpec("popups", "border", Commons.Color.popups.border,
+                                              Commons.Color.popups.border, Math.max(1, Style.space(2)))
 
         MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons }   // not a place to draw
 
         Column {
           id: headerColumn
           anchors.centerIn: parent
-          spacing: Style.spacing.md
+          width: Math.max(tabs.implicitWidth, controls.implicitWidth, Style.space(560))
+          spacing: Style.space(12)
+
+          Text {
+            visible: root.cfg === null
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: "The tapzones service isn't running, so there's nothing to edit.\nStart it: systemctl --user start tapzones   (Esc closes)"
+            color: root.bad
+            font.family: Style.font.family
+            font.pixelSize: Style.font.body
+          }
+
+          // what you're editing, and how well the mic will tell it apart
+          Item {
+            visible: root.cfg !== null
+            width: parent.width
+            height: Math.max(titleColumn.implicitHeight, estimateColumn.implicitHeight)
+
+            Column {
+              id: titleColumn
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.spacing.xs
+              Text {
+                text: "Tap layout"
+                color: header.fg
+                font.family: Style.font.family
+                font.pixelSize: Style.font.heading
+                font.bold: true
+              }
+              Text {
+                text: ((root.rev, root.cfg) ? Layout.TITLES[root.gesture] : "")
+                      + (root.stateWord ? "  ·  " + root.stateWord : "")
+                font.capitalization: Font.AllUppercase
+                font.letterSpacing: 1.2
+                color: root.stateWord === "trained" ? root.good
+                     : root.stateWord === "" ? Util.alpha(header.fg, 0.55) : root.mid
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+
+            Column {
+              id: estimateColumn
+              readonly property bool known: root.estimate !== null && !isNaN(root.estimate.overall)
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              Text {
+                anchors.right: parent.right
+                text: estimateColumn.known ? "≈ " + Layout.pct(root.estimate.overall) : "—"
+                color: estimateColumn.known ? root.grade(root.estimate.overall) : Util.alpha(header.fg, 0.4)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.display
+                font.bold: true
+              }
+              Text {
+                anchors.right: parent.right
+                text: "estimated accuracy"
+                font.capitalization: Font.AllUppercase
+                font.letterSpacing: 1.2
+                color: Util.alpha(header.fg, 0.55)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          PanelSeparator { visible: root.cfg !== null; width: parent.width }
+
+          PanelSectionHeader { visible: root.cfg !== null; text: "GESTURE"; foreground: header.fg }
 
           Row {
-            spacing: Style.spacing.md
+            id: tabs
             visible: root.cfg !== null
+            spacing: Style.spacing.controlGap
             Repeater {
               model: Layout.GESTURES
-              delegate: Chip {
+              delegate: Button {
                 required property string modelData
                 required property int index
-                label: (index + 1) + " " + Layout.TITLES[modelData] + ((root.rev, root.cfg && root.cfg[modelData].enabled) ? "" : " (off)")
-                current: root.gesture === modelData
+                readonly property bool on: (root.rev, root.cfg !== null && root.cfg[modelData].enabled)
+                text: (index + 1) + "   " + Layout.TITLES[modelData]
+                bordered: true
+                selected: root.gesture === modelData
+                foreground: on ? header.fg : Util.alpha(header.fg, 0.45)
+                fontSize: Style.font.bodySmall
+                tooltipText: on ? "" : "off"
                 onClicked: root.setGesture(modelData)
               }
             }
           }
 
-          Row {
-            spacing: Style.spacing.md
+          PanelSeparator { visible: root.cfg !== null; width: parent.width }
+
+          // how many sections, then which layout of that many
+          Item {
             visible: root.cfg !== null
-            Chip { label: "‹"; onClicked: root.stepPreset(-1) }
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              text: (root.rev, root.cfg) ? Layout.presetOf(root.sections) + " · " + root.sections.length + "/"
-                    + root.cfg.max_sections + " sections" : ""
-              color: Commons.Color.menu.text
-              font.family: Style.font.menuFamily
-              font.pixelSize: Style.font.body
+            width: parent.width
+            height: countRow.implicitHeight
+
+            Row {
+              id: countRow
+              spacing: Style.spacing.lg
+              PanelSectionHeader { anchors.verticalCenter: parent.verticalCenter; text: "SECTIONS"; foreground: header.fg }
+              ButtonGroup {
+                options: Layout.COUNTS.map(String)
+                value: String(root.count)
+                focusable: false
+                foreground: header.fg
+                background: "transparent"     // the default is opaque: hover would fade through a bright grey
+                fontSize: Style.font.bodySmall
+                onChanged: v => root.setCount(Number(v))
+              }
             }
-            Chip { label: "›"; onClicked: root.stepPreset(1) }
-            Chip { label: (root.rev, root.cfg && root.cfg[root.gesture].enabled) ? "on" : "off"; onClicked: root.toggleEnabled() }
-            Chip { label: "feedback: " + ((root.rev, root.cfg) ? root.cfg.feedback : ""); onClicked: root.cycleFeedback() }
-            Chip { label: "undo"; onClicked: root.undo() }
-            Chip { label: "save"; current: root.dirty; onClicked: root.save() }
+
             Text {
+              readonly property bool over: (root.rev, root.cfg !== null && root.count > root.cfg.max_sections)
+              anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
-              visible: root.estimate !== null && !isNaN(root.estimate.overall)
-              text: root.estimate ? "estimate ≈ " + Layout.pct(root.estimate.overall) : ""
-              color: root.estimate ? root.grade(root.estimate.overall) : root.mid
-              font.family: Style.font.menuFamily
-              font.pixelSize: Style.font.body
+              text: (root.rev, root.cfg) ? root.choices.length + (root.choices.length === 1 ? " layout" : " layouts")
+
+                    + (over ? " · over " : " · up to ") + root.cfg.max_sections + " sections recommended" : ""
+              color: over ? root.mid : Util.alpha(header.fg, 0.55)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
             }
           }
 
-          Text {
-            text: root.cfg === null
-              ? "The tapzones service isn't running, so there's nothing to edit.\nStart it: systemctl --user start tapzones   (Esc closes)"
-              : root.stateLine
-            color: root.cfg === null ? root.bad : root.stateLine.indexOf("trained:") === 0 ? root.good : root.mid
-            font.family: Style.font.menuFamily
-            font.pixelSize: Style.font.bodySmall
+          // The layouts with that many sections: the chosen one big in the
+          // middle, its neighbours peeking in at the sides.
+          Item {
+            id: carousel
+            visible: root.cfg !== null
+            width: parent.width
+            height: slides.height
+            readonly property real aspect: root.laptopScreen ? root.laptopScreen.height / root.laptopScreen.width : 0.625
+            readonly property real slideWidth: Math.round(slides.width * 0.5)   // the neighbours show in part
+            readonly property int current: {
+              root.preset
+              for (var i = 0; i < root.choices.length; i++) if (root.choices[i].name === root.preset) return i
+              return -1
+            }
+            function sync() { if (current >= 0 && slides.currentIndex !== current) slides.currentIndex = current }
+            onCurrentChanged: Qt.callLater(sync)
+
+            Button {
+              id: prevButton
+              anchors.left: parent.left
+              y: (carousel.slideWidth * carousel.aspect - height) / 2
+              text: "‹"
+              bordered: true
+              enabled: root.choices.length > 1
+              tooltipText: "previous layout (Shift+P)"
+              onClicked: root.stepPreset(-1)
+            }
+            Button {
+              id: nextButton
+              anchors.right: parent.right
+              y: prevButton.y
+              text: "›"
+              bordered: true
+              enabled: root.choices.length > 1
+              tooltipText: "next layout (P)"
+              onClicked: root.stepPreset(1)
+            }
+
+            ListView {
+              id: slides
+              anchors.left: prevButton.right
+              anchors.right: nextButton.left
+              anchors.leftMargin: Style.spacing.lg
+              anchors.rightMargin: Style.spacing.lg
+              height: carousel.slideWidth * carousel.aspect + Style.spacing.md + slideCaption.height * 2
+              orientation: ListView.Horizontal
+              spacing: Style.spacing.xl
+              clip: true
+              model: root.choices
+              snapMode: ListView.SnapOneItem
+              highlightRangeMode: ListView.StrictlyEnforceRange
+              preferredHighlightBegin: (width - carousel.slideWidth) / 2
+              preferredHighlightEnd: (width + carousel.slideWidth) / 2
+              highlightMoveDuration: 160
+              onModelChanged: Qt.callLater(carousel.sync)
+              // Dragged or flicked to another layout: use it.
+              onMovementEnded: if (currentIndex >= 0 && currentIndex < root.choices.length)
+                                 root.choose(root.choices[currentIndex].name)
+
+              Text { id: slideCaption; visible: false; text: "X"; font.pixelSize: Style.font.body }
+
+              delegate: Item {
+                id: slide
+                required property var modelData
+                required property int index
+                readonly property bool on: index === carousel.current
+                width: carousel.slideWidth
+                height: slides.height
+                opacity: on ? 1 : 0.4
+                scale: on ? 1 : 0.86
+                Behavior on opacity { NumberAnimation { duration: 140 } }
+                Behavior on scale { NumberAnimation { duration: 140 } }
+
+                Rectangle {
+                  id: frame
+                  width: parent.width
+                  height: Math.round(width * carousel.aspect)
+                  radius: Style.cornerRadius
+                  color: "transparent"
+                  border.width: slide.on ? Math.max(2, Style.space(2)) : 1
+                  border.color: slide.on ? Commons.Color.accent : Util.alpha(header.fg, 0.35)
+
+                  Repeater {
+                    model: Layout.PRESETS[slide.modelData.name]
+                    delegate: Rectangle {
+                      required property var modelData
+                      required property int index
+                      readonly property real inset: Math.max(2, Style.space(4))
+                      x: inset + modelData[0] * (frame.width - 2 * inset) + 1
+                      y: inset + modelData[1] * (frame.height - 2 * inset) + 1
+                      width: modelData[2] * (frame.width - 2 * inset) - 2
+                      height: modelData[3] * (frame.height - 2 * inset) - 2
+                      readonly property bool over: index < Layout.PRESET_OVER[slide.modelData.name]
+                      readonly property color tint: Util.alpha(root.zoneColors[index % root.zoneColors.length], 0.6)
+                      z: over ? 1 : 0
+                      radius: Style.cornerRadius
+                      color: over ? Qt.tint(Commons.Color.popups.background, tint) : tint
+                      border.width: over ? Math.max(2, Style.space(3)) : 0      // a gap round it, as drawn
+                      border.color: Commons.Color.popups.background
+                    }
+                  }
+                }
+
+                Column {
+                  visible: slide.on                     // a neighbour's would be cut off
+                  anchors.top: frame.bottom
+                  anchors.topMargin: Style.spacing.md
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: slide.modelData.name
+                    color: header.fg
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                  }
+                  Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: (slide.modelData.acc >= 0 ? "≈ " + Layout.pct(slide.modelData.acc) + "  ·  " : "")
+                          + (slide.index + 1) + " of " + root.choices.length
+                    color: slide.modelData.acc >= 0 ? root.grade(slide.modelData.acc) : Util.alpha(header.fg, 0.55)
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                  }
+                }
+
+                HoverHandler { cursorShape: slide.on ? Qt.ArrowCursor : Qt.PointingHandCursor }
+                TapHandler { onTapped: root.choose(slide.modelData.name) }
+              }
+            }
           }
 
-          Text {
-            text: root.warn || root.estimateLine
-            visible: text !== ""
-            color: root.warn && /not |fail|more than|overlap|smaller/.test(root.warn) ? root.bad
-                 : Util.alpha(Commons.Color.menu.text, root.warn ? 0.95 : 0.5)
-            font.family: Style.font.menuFamily
-            font.pixelSize: Style.font.caption
+          PanelSeparator { visible: root.cfg !== null; width: parent.width }
+
+          // the chosen gesture's settings
+          Row {
+            id: controls
+            visible: root.cfg !== null
+            spacing: Style.space(28)
+
+            Column {
+              spacing: Style.spacing.lg
+              PanelSectionHeader { text: "ENABLED"; foreground: header.fg }
+              ToggleSwitch {
+                checked: (root.rev, root.cfg !== null && root.cfg[root.gesture].enabled)
+                foreground: header.fg
+                onToggled: root.toggleEnabled()
+              }
+            }
+
+            Column {
+              spacing: Style.spacing.lg
+              PanelSectionHeader { text: "FEEDBACK"; foreground: header.fg }
+              ButtonGroup {
+                options: Layout.FEEDBACK
+                value: (root.rev, root.cfg) ? root.cfg.feedback : ""
+                focusable: false
+                foreground: header.fg
+                background: "transparent"
+                fontSize: Style.font.bodySmall
+                onChanged: v => root.setFeedback(v)
+              }
+            }
+          }
+
+          PanelSeparator { visible: root.cfg !== null; width: parent.width }
+
+          // what happens now, and the actions
+          Item {
+            visible: root.cfg !== null
+            width: parent.width
+            height: Math.max(statusColumn.implicitHeight, actions.implicitHeight)
+
+            Column {
+              id: statusColumn
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              width: parent.width - actions.width - Style.spacing.xl
+              spacing: Style.spacing.xs
+              Text {
+                width: parent.width
+                wrapMode: Text.Wrap
+                text: root.stateLine
+                visible: text !== ""
+                color: root.stateWord === "trained" ? root.good : root.mid
+                font.family: Style.font.family
+                font.pixelSize: Style.font.bodySmall
+              }
+              Text {
+                width: parent.width
+                wrapMode: Text.Wrap
+                text: root.warn || root.estimateLine
+                visible: text !== ""
+                color: root.warn && /not |fail|more than|overlap|smaller/.test(root.warn) ? root.bad
+                     : Util.alpha(header.fg, root.warn ? 0.95 : 0.5)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+
+            Row {
+              id: actions
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.spacing.controlGap
+              Button { text: "Undo"; foreground: header.fg; tooltipText: "U"; onClicked: root.undo() }
+              Button {
+                text: root.dirty ? "Save and train" : "Saved"
+                bordered: true
+                selected: root.dirty
+                foreground: header.fg
+                tooltipText: "S"
+                onClicked: root.save()
+              }
+            }
           }
         }
       }
 
       // --------------------------------------------- name, command, picks
 
-      Rectangle {
+      BorderSurface {
         id: details
+        readonly property real pad: Style.spacing.popupPadding
+
         visible: root.selected >= 0
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: hints.top
         anchors.bottomMargin: Style.space(14)
         width: Math.min(parent.width - Style.space(32), Style.space(820))
-        height: detailsColumn.implicitHeight + Style.spacing.xl * 2
-        radius: Style.space(12)
-        color: Commons.Color.menu.background
-        border.color: Util.alpha(Commons.Color.menu.border, 0.25)
+        height: detailsColumn.implicitHeight + pad * 2
+        radius: Style.cornerRadius
+        color: Commons.Color.popups.background
+        borderSpec: Border.localOrSurfaceSpec("popups", "border", Commons.Color.popups.border,
+                                              Commons.Color.popups.border, Math.max(1, Style.space(2)))
 
         MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons }   // not a place to draw
 
         Column {
           id: detailsColumn
           anchors.fill: parent
-          anchors.margins: Style.spacing.xl
-          spacing: Style.spacing.md
+          anchors.margins: details.pad
+          spacing: Style.space(12)
 
           Row {
             width: parent.width
-            spacing: Style.spacing.lg
-            TextField {
-              id: nameField
-              width: Style.space(200)
-              placeholderText: "name"
-              font.family: Style.font.menuFamily
-              font.pixelSize: Style.font.body
-              onTextEdited: root.edit("name", text)
-              Keys.onEscapePressed: keyCatcher.forceActiveFocus()
-              onAccepted: keyCatcher.forceActiveFocus()
+            spacing: Style.spacing.xl
+            Column {
+              spacing: Style.spacing.lg
+              PanelSectionHeader { text: "NAME"; foreground: header.fg }
+              TextField {
+                id: nameField
+                width: Style.space(200)
+                placeholderText: "name"
+                foreground: header.fg
+                onTextEdited: root.edit("name", text)
+                Keys.onEscapePressed: keyCatcher.forceActiveFocus()
+                onAccepted: keyCatcher.forceActiveFocus()
+              }
             }
-            TextField {
-              id: commandField
-              width: parent.width - nameField.width - parent.spacing
-              placeholderText: "shell command, e.g. omarchy launch browser"
-              font.family: Style.font.menuFamily
-              font.pixelSize: Style.font.body
-              onTextEdited: root.edit("command", text)
-              Keys.onEscapePressed: keyCatcher.forceActiveFocus()
-              onAccepted: keyCatcher.forceActiveFocus()
+            Column {
+              spacing: Style.spacing.lg
+              PanelSectionHeader { text: "COMMAND"; foreground: header.fg }
+              TextField {
+                id: commandField
+                width: detailsColumn.width - nameField.width - Style.spacing.xl
+                placeholderText: "shell command, e.g. omarchy launch browser"
+                foreground: header.fg
+                onTextEdited: root.edit("command", text)
+                Keys.onEscapePressed: keyCatcher.forceActiveFocus()
+                onAccepted: keyCatcher.forceActiveFocus()
+              }
             }
           }
 
+          PanelSeparator { width: parent.width }
+
+          PanelSectionHeader { text: "OMARCHY ACTIONS"; foreground: header.fg }
+
           Flow {
             width: parent.width
-            spacing: Style.spacing.sm
+            spacing: Style.spacing.controlGap
             Repeater {
               model: Layout.OMARCHY_ACTIONS
-              delegate: Chip {
+              delegate: Button {
                 required property var modelData
-                label: modelData.label
-                small: true
-                current: (root.rev, root.selected >= 0 && root.sections[root.selected] && root.sections[root.selected].command === modelData.command)
+                text: modelData.label
+                bordered: true
+                foreground: header.fg
+                fontSize: Style.font.bodySmall
+                selected: (root.rev, root.selected >= 0 && root.sections[root.selected] && root.sections[root.selected].command === modelData.command)
                 onClicked: {
                   root.remember()
                   commandField.text = modelData.command
@@ -613,43 +1000,11 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Style.space(14)
-        text: "drag: draw / move / resize · right-click: delete · 1–5 gesture · P preset · E on/off · F feedback · U undo · S save · Esc close"
+        text: "drag: move / resize · right-click: delete · 1–5 gesture · N sections · P layout · E on/off · F feedback · U undo · S save · Esc close"
         color: Util.alpha(Commons.Color.foreground, 0.7)
         font.family: Style.font.menuFamily
         font.pixelSize: Style.font.caption
       }
-    }
-  }
-
-  // A small clickable label in the theme: tabs, header buttons, picks.
-  component Chip: Rectangle {
-    id: chip
-    property string label: ""
-    property bool current: false
-    property bool small: false
-    signal clicked()
-
-    implicitWidth: chipText.implicitWidth + Style.spacing.lg * 2
-    implicitHeight: chipText.implicitHeight + (small ? Style.spacing.xs : Style.spacing.sm) * 2
-    radius: Style.space(6)
-    color: current ? Util.alpha(Commons.Color.accent, 0.25)
-         : chipMouse.containsMouse ? Commons.Color.menu.selectedBackground : "transparent"
-    border.color: Util.alpha(Commons.Color.menu.text, small ? 0.2 : 0)
-
-    Text {
-      id: chipText
-      anchors.centerIn: parent
-      text: chip.label
-      color: chip.current ? Commons.Color.menu.selectedText : Util.alpha(Commons.Color.menu.text, 0.8)
-      font.family: Style.font.menuFamily
-      font.pixelSize: chip.small ? Style.font.caption : Style.font.bodySmall
-    }
-    MouseArea {
-      id: chipMouse
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onClicked: chip.clicked()
     }
   }
 }

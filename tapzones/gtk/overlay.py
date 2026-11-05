@@ -1,63 +1,21 @@
-#!/usr/bin/env python3
-"""tapzones: tap a quadrant of the (non-touch) screen, the microphone hears
-where. A full-screen overlay to calibrate, see, and test it.
-
-    taps.py            calibrate (15 taps per quadrant), then review
-    taps.py test       a test round against the saved calibration: tap 20
-                       random points, see which quadrant each was heard as
-    taps.py test --train collect-…[,…]   the test round guessed by an SVM
-                       trained on those sessions (run with .venv/bin/python)
-    taps.py test --signed   the test round guessed by the signed CNN
-                       (ml.py --export makes it)
-    taps.py test / taps.py free   with final.joblib present (ml.py
-                       --export-final): the final ensemble, answering 45 ms
-                       after the hit and ignoring taps it isn't sure of;
-                       --knn for the calibration kNN instead
-    taps.py locate     tap anywhere you're shown; the rough x,y model
-                       (ml.py --export-xy) draws where it thinks you tapped,
-                       with the running x and y error in pixels
-    taps.py collect [PER_SPOT] [PER_ZONE]   training data, balanced: the 3×3
-                       grid in every quadrant, PER_SPOT taps per spot (default
-                       5), then PER_ZONE well-spaced random points per quadrant
-                       (default 30). Saved as it goes to collect-<time>.npz
-    taps.py run        the background service, no UI: hears gestures and runs
-                       the commands in ~/.config/tapzones/gestures.toml (engine.py)
-    taps.py status | pause | resume | toggle   talk to the running service
-    taps.py flash      the GTK flash feedback, for desktops without the
-                       Omarchy plugin (flash.py)
-    taps.py layout     edit the sections of each gesture, see how well the
-                       mic can tell them apart, save and train (editor.py;
-                       on Omarchy the plugin's editor does this in the shell)
-    taps.py noise      records everything the mic hears, no threshold, while
-                       you make sounds that are NOT screen taps (prompted one
-                       kind at a time): noise-<time>.raw + .json
+"""The full-screen overlay to record taps, see what the mic hears, and test
+the models: `tapzones calibrate | test | free | locate | collect | noise`
+(docs/usage.md has each mode).
 
 Keys: Esc quit · Backspace undo last tap · R recalibrate · T test round ·
       F free tapping · V calibration results · N (free tapping) the last
-      sound wasn't a tap: saved as noise for the gate (ml.py --export-gate)
+      sound wasn't a tap: saved as noise for the gate (tapzones train gate)
 """
-import collections, os, subprocess, sys, threading, time
-
-if sys.argv[1:2] in (["run"], ["status"], ["pause"], ["resume"], ["toggle"]):
-    import engine                 # headless: no GTK, no layer-shell restart
-    sys.exit(engine.main(sys.argv[1:]))
-
-# Layer shell only works when loaded before libwayland: restart once with it
-# preloaded.
-LAYER_LIB = "/usr/lib/libgtk4-layer-shell.so"
-if LAYER_LIB not in os.environ.get("LD_PRELOAD", ""):
-    os.environ["LD_PRELOAD"] = LAYER_LIB
-    os.execv(sys.executable, [sys.executable] + sys.argv)
-
+import os, sys, time
 import numpy as np
-import gi
-gi.require_version("Gtk", "4.0")
-gi.require_version("Gtk4LayerShell", "1.0")
-from gi.repository import Gtk, GLib, Gdk, Gtk4LayerShell as Layer
-import cairo
+from . import Gtk, GLib, Gdk, Layer, cairo, BG, FG, ACCENT, ZONE_RGB, text, rounded
+from .. import features
+from ..audio import SR, HOP, PRE_HOPS, EARLY_HOPS, Mic, hold_overlay_lock
+from ..features import ZONES
+from ..models import Gate
+from ..paths import DATA
 
-from mic import SOURCE, SR, HOP, PRE_HOPS, POST_HOPS, EARLY_HOPS, DATA, LOCK, hold_overlay_lock, overlay_open, Mic
-FFT = 4096                     # ~85 ms of sound per fingerprint
+FFT = 4096                    # ~85 ms of sound per fingerprint
 # Calibration walks a 3×3 grid of spots in each quadrant (snake order),
 # two taps per spot, so the whole quadrant is learned, not one point.
 GRID = (0.25, 0.5, 0.75)
@@ -85,25 +43,6 @@ NOISE_PROMPTS = [
     ("Anything else around you", "doors, drawers, the desk itself"),
 ]
 PER_PROMPT = 15                # sounds per prompt before moving on (Space skips)
-ZONES = ["top-left", "top-right", "bottom-left", "bottom-right"]
-ZONE_RGB = [(0.88, 0.42, 0.46), (0.90, 0.75, 0.48), (0.60, 0.76, 0.47), (0.38, 0.69, 0.94)]
-
-# ------------------------------------------------------------------ theme
-
-def theme():
-    """Background, foreground and accent of the current Omarchy theme."""
-    c = {"background": "#0c0b0c", "foreground": "#fafcfb", "accent": "#b59790"}
-    try:
-        for line in open(os.path.expanduser("~/.local/state/omarchy/current/theme/colors.toml")):
-            k, _, v = line.partition("=")
-            if k.strip() in c:
-                c[k.strip()] = v.strip().strip('"')
-    except OSError:
-        pass
-    rgb = lambda h: tuple(int(h.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
-    return rgb(c["background"]), rgb(c["foreground"]), rgb(c["accent"])
-
-BG, FG, ACCENT = theme()
 
 # --------------------------------------------------------------- features
 
@@ -157,11 +96,9 @@ class Model:
         return np.trace(confusion) / confusion.sum(), confusion
 
 class Learned:
-    """ml.py's best recipe (SVM on log-mel summary features), trained on the
-    named sessions in DATA, e.g. collect-20261104-193438. Needs scikit-learn:
-    run with .venv-gui/bin/python."""
+    """The first research's best recipe (SVM on log-mel summary features),
+    trained on the named sessions in DATA, e.g. collect-20261104-193438."""
     def __init__(self, names):
-        import ml
         from sklearn.pipeline import make_pipeline
         from sklearn.preprocessing import StandardScaler
         from sklearn.svm import SVC
@@ -169,60 +106,58 @@ class Learned:
         for name in names:
             d = np.load(os.path.join(DATA, name + ".npz"))
             y += list(d["labels"] if "labels" in d else d["truth"])
-            X += [ml.aligned(w) for w in d["windows"]]
-        self.ml = ml
+            X += [features.aligned(w) for w in d["windows"]]
         self.clf = make_pipeline(StandardScaler(), SVC(C=3, probability=True, random_state=0))
-        self.clf.fit(ml.summary_features(np.array(X)), np.array(y, int))
+        self.clf.fit(features.summary_features(np.array(X)), np.array(y, int))
         self.label = f"SVM trained on {' + '.join(names)} ({len(y)} taps)"
 
     def predict(self, window):
-        p = self.clf.predict_proba(self.ml.summary_features([self.ml.aligned(window)]))[0]
+        p = self.clf.predict_proba(features.summary_features([features.aligned(window)]))[0]
         return int(p.argmax()), float(p.max()), None
 
 
 class Signed:
-    """The CNN that hears the lid's push or pull (ml.py --export): its
-    trained copies, probabilities averaged."""
+    """The CNN that hears the lid's push or pull (tapzones train signed):
+    its trained copies, probabilities averaged."""
     def __init__(self):
-        import ml, torch
-        self.ml, self.torch = ml, torch
+        import torch
+        self.torch = torch
         d = torch.load(os.path.join(DATA, "signed-cnn.pt"), weights_only=True)
         self.nets = []
         for state in d["states"]:
-            net = ml.cnn(d["n"])
+            net = features.cnn(d["n"])
             net.load_state_dict(state)
             self.nets.append(net.eval())
         self.label = f"signed CNN on {d['taps']} taps ({len(d['sessions'])} sessions)"
 
     def predict(self, window):
-        x = self.torch.tensor(self.ml.wave4k(window.mean(axis=1)))[None, None]
+        x = self.torch.tensor(features.wave4k(window.mean(axis=1)))[None, None]
         with self.torch.no_grad():
             p = self.torch.stack([self.torch.softmax(net(x), 1)[0] for net in self.nets]).mean(0).numpy()
         return int(p.argmax()), float(p.max()), None
 
 class Final:
-    """The shipped model (ml.py --export-final): SVM + MLP + logistic on the
-    signed features and the CNN on the waveform, probabilities averaged.
-    It answers from the first 45 ms (Mic.on_early) and refuses taps it is
-    less sure of than its cutoff."""
+    """The overlay's quadrant model (tapzones train final): SVM + MLP +
+    logistic on the signed features and the CNN on the waveform,
+    probabilities averaged. It answers from the first 45 ms (Mic.on_early)
+    and refuses taps it is less sure of than its cutoff."""
     early = True
 
     def __init__(self):
-        import ml, joblib, torch
-        self.ml, self.torch = ml, torch
+        import joblib, torch
+        self.torch = torch
         torch.set_num_threads(1)
-        d = joblib.load(os.path.join(DATA, "final.joblib"))   # our own file, written by ml.py --export-final
+        d = joblib.load(os.path.join(DATA, "final.joblib"))   # our own file, written by tapzones train final
         self.sk = list(d["sklearn"].values())
         self.nets = []
         for state in d["cnn"]:
-            net = ml.cnn(d["n"])
+            net = features.cnn(d["n"])
             net.load_state_dict(state)
             self.nets.append(net.eval())
         self.cutoff = d["cutoff"]
         self.label = f"final ensemble on {d['taps']} taps ({len(d['sessions'])} sessions)"
-        # Tap or not, asked first (ml.py --export-gate).
-        import gestures
-        self.gate = gestures.Gate()
+        # Tap or not, asked first (tapzones train gate).
+        self.gate = Gate()
         if self.gate.d:
             self.label += f" + gate ({self.gate.d['noise']} noises)"
         # The first call pays for torch's and sklearn's one-time setup (~30 ms):
@@ -231,9 +166,9 @@ class Final:
 
     def proba(self, window):
         W = window[None]
-        f = self.ml.signed(W, **self.ml.BEST1)
+        f = features.signed(W, **features.BEST1)
         p = [m.predict_proba(f)[0] for m in self.sk]
-        x = self.torch.tensor(self.ml.signed(W, **self.ml.WAVE)[:, None])
+        x = self.torch.tensor(features.signed(W, **features.WAVE)[:, None])
         with self.torch.no_grad():
             p.append(np.mean([self.torch.softmax(n(x), 1)[0].numpy() for n in self.nets], axis=0))
         return np.mean(p, axis=0)
@@ -249,17 +184,16 @@ class Final:
 
 
 class Locator:
-    """The rough-position model (ml.py --export-xy): where on the screen a
+    """The rough-position model (tapzones train xy): where on the screen a
     tap was, as (x, y) fractions."""
     def __init__(self):
-        import ml, joblib
-        self.ml = ml
-        d = joblib.load(os.path.join(DATA, "xy-svr.joblib"))   # our own file, written by ml.py --export-xy
+        import joblib
+        d = joblib.load(os.path.join(DATA, "xy-svr.joblib"))   # our own file, written by tapzones train xy
         self.model = d["model"]
         self.label = f"x,y SVR on {d['taps']} taps ({len(d['sessions'])} sessions)"
 
     def predict(self, window):
-        F = self.ml.signed(window[None], **self.ml.BEST1)
+        F = features.signed(window[None], **features.BEST1)
         return tuple(float(v) for v in self.model.predict(F)[0])
 
 # --------------------------------------------------------------------- UI
@@ -630,7 +564,7 @@ class App:
     def mark_noise(self):
         """N in free mode: the last sound wasn't a screen tap. Kept with this
         run's other false alarms as noise-free-<time>.npz, which the next
-        ml.py --export-gate trains the gate on."""
+        tapzones train gate trains the gate on."""
         self.false_alarms.append(self.last[0])
         os.makedirs(DATA, exist_ok=True)
         np.savez_compressed(os.path.join(DATA, self.noise_file), windows=np.array(self.false_alarms, np.float32))
@@ -1126,17 +1060,8 @@ class App:
 
     # --------------------------------------------------------- helpers
 
-    @staticmethod
-    def text(cr, s, x, y, size, rgb, alpha=1.0, right=False, center=False):
-        cr.set_font_size(size)
-        ext = cr.text_extents(s)
-        if right:
-            x -= ext.x_advance
-        elif center:
-            x -= ext.x_advance / 2
-        cr.set_source_rgba(*rgb, alpha)
-        cr.move_to(x, y)
-        cr.show_text(s)
+    text = staticmethod(text)
+    rounded = staticmethod(rounded)
 
     @staticmethod
     def polyline(cr, pts, rgb, alpha, width):
@@ -1149,52 +1074,14 @@ class App:
             cr.line_to(*p)
         cr.stroke()
 
-    @staticmethod
-    def rounded(cr, x, y, w, h, r):
-        cr.new_sub_path()
-        cr.arc(x + w - r, y + r, r, -np.pi / 2, 0)
-        cr.arc(x + w - r, y + h - r, r, 0, np.pi / 2)
-        cr.arc(x + r, y + h - r, r, np.pi / 2, np.pi)
-        cr.arc(x + r, y + r, r, np.pi, 3 * np.pi / 2)
-        cr.close_path()
 
-
-def main():
-    args = sys.argv[1:]
-    if args[:1] == ["flash"]:
-        import flash
-        return flash.main()
-    if args[:1] == ["layout"]:
-        import editor
-        return editor.main()
-    train = None
-    if "--train" in args:   # --train collect-…,test-…  (session names in DATA)
-        i = args.index("--train")
-        train = args[i + 1].split(",")
-        del args[i: i + 2]
-    if "--signed" in args:
-        train = ["signed"]
-        args.remove("--signed")
-    knn = "--knn" in args
-    if knn:
-        args.remove("--knn")
-    mode = "calibrate"
-    if args[:1] in (["test"], ["free"]):
-        mode = args[0]
-        # The final ensemble unless another model was asked for.
-        if train is None and not knn and os.path.exists(os.path.join(DATA, "final.joblib")):
-            train = ["final"]
-    elif args[:1] == ["noise"]:
-        mode = "noise"
-    elif args[:1] == ["locate"]:
-        mode = "locate"
-    elif args[:1] == ["collect"]:
-        mode = "collect" + "".join(f":{int(a)}" for a in args[1:3])
+def main(mode, train=None, knn=False):
+    """mode: calibrate | test | free | noise | locate | collect[:PER_SPOT[:PER_ZONE]].
+    train: session names for an SVM, ["signed"], or None for the final
+    ensemble in test and free (the calibration kNN with knn)."""
+    if mode in ("test", "free") and train is None and not knn and os.path.exists(os.path.join(DATA, "final.joblib")):
+        train = ["final"]
     app = Gtk.Application(application_id="tapzones.overlay")
     holder = []
     app.connect("activate", lambda a: holder.append(App(a, mode, train)))
     app.run([])
-
-
-if __name__ == "__main__":
-    main()

@@ -87,7 +87,7 @@ flowchart LR
 
 | Note | What it covers |
 |---|---|
-| [[Sections]] | Presets, drawing rectangles, dead zones, why rows beat columns, the limit of 5, the centre problem |
+| [[Sections]] | Presets and adjusting them, dead zones, why rows beat columns, the limit of 5, the centre problem |
 | [[Multi-tap]] | Double and triple taps: grouping, timing, the detector changes, combining evidence |
 | [[Multi-finger]] | 2- and 3-finger taps: what the mic might hear, and what's unknown |
 | [[Configuration]] | The config file, the limits and validation, an example |

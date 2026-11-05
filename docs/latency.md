@@ -50,13 +50,13 @@ window shorter and comparing the features with those from the full window:
 | 45 ms | 70 ms | 100% |
 | 60 ms | 85 ms | 100% |
 
-So `POST_HOPS` in `taps.py` can drop from 30 (150 ms) to **8 (40 ms)** with no change to
+So `POST_HOPS` in `tapzones/audio.py` can drop from 30 (150 ms) to **8 (40 ms)** with no change to
 the model's input. 9 hops (45 ms) leaves one hop of margin.
 
 ## What shipped
 
 - The mic thread calls `on_early` **9 hops (45 ms) after detection** with the 70 ms
-  window so far (`EARLY_HOPS` in `taps.py`).
+  window so far (`EARLY_HOPS` in `tapzones/audio.py`).
 - The final ensemble answers from that window; its answer is identical to the
   full-window answer on 22/22 unseen taps.
 - The full 175 ms window still arrives later and is saved, so recorded data keeps the

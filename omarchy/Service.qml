@@ -5,7 +5,7 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Commons as Commons
 
-// The shell side of tapzones: a client of the service (engine.py, run by
+// The shell side of tapzones: a client of the service (tapzones/service/engine.py, run by
 // systemd as tapzones.service) over its socket. Keeps the service's state
 // for the bar widget and the editor, and draws the flash feedback in the
 // theme's colours. The service keeps listening if the shell restarts.
@@ -16,7 +16,10 @@ Item {
   property var manifest: null
 
   readonly property string pluginId: (root.manifest && root.manifest.id) || "meshwa.tapzones"
-  readonly property string socketPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/tapzones.sock"
+  // No fallback to a shared directory like /tmp: another user could put a
+  // socket there first (the service refuses to run without it too).
+  readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || ""
+  readonly property string socketPath: runtimeDir ? runtimeDir + "/tapzones.sock" : ""
 
   // The last {"event": "state"}: paused, config, model, training, estimate…
   property var state: null
@@ -58,7 +61,7 @@ Item {
   Socket {
     id: sock
     path: root.socketPath
-    connected: true
+    connected: root.socketPath !== ""
     onConnectedChanged: {
       if (connected) {
         root.send({ cmd: "hello", ui: true })
@@ -73,7 +76,7 @@ Item {
   Timer {
     interval: 2000
     repeat: true
-    running: !sock.connected
+    running: !sock.connected && root.socketPath !== ""
     onTriggered: { sock.connected = false; sock.connected = true }
   }
 
@@ -124,7 +127,7 @@ Item {
         y: flash.rect ? flash.rect[1] * content.height + Style.space(6) : 0
         width: flash.rect ? flash.rect[2] * content.width - Style.space(12) : 0
         height: flash.rect ? flash.rect[3] * content.height - Style.space(12) : 0
-        radius: Style.space(14)
+        radius: Style.cornerRadius
         color: Util.alpha(Commons.Color.accent, 0.16)
         border.color: Util.alpha(Commons.Color.accent, 0.85)
         border.width: Math.max(2, Style.space(3))
@@ -143,7 +146,7 @@ Item {
         anchors.centerIn: parent
         width: unsure.implicitWidth + Style.spacing.xl * 2
         height: unsure.implicitHeight + Style.spacing.md * 2
-        radius: Style.space(10)
+        radius: Style.cornerRadius
         color: Commons.Color.tooltip.background
         border.color: Commons.Color.tooltip.border
 

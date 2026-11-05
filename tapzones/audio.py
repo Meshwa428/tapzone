@@ -1,22 +1,18 @@
 """The microphone side of tapzones, with no UI: the tap detector the overlay
-(taps.py) and the headless service (engine.py) share.
+(gtk/overlay.py) and the headless service (service/engine.py) share.
 
 TAPZONES_SOURCE picks the PulseAudio/PipeWire source to listen to; the
 default is this laptop's built-in mic, which every recorded tap came from.
 """
 import collections, os, subprocess, threading, time
 import numpy as np
+from .paths import DATA, LOCK
 
 SOURCE = os.environ.get("TAPZONES_SOURCE", "alsa_input.pci-0000_00_1f.3.analog-stereo")
 SR = 48000
 HOP = 240                      # 5 ms analysis step
 PRE_HOPS, POST_HOPS = 4, 30    # keep 20 ms before a tap and 150 ms after
 EARLY_HOPS = 9                 # the final model answers 45 ms after the hit: all it needs (docs/latency.md)
-DATA = os.path.expanduser("~/.local/share/tapzones")
-
-# While the overlay is open the background service stays quiet, so
-# calibrating, testing or editing a layout never runs commands.
-LOCK = os.path.join(DATA, "overlay.pid")
 
 
 def hold_overlay_lock():

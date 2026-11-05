@@ -1,7 +1,7 @@
 .pragma library
 
-// Layouts for the editor, the same rules as gestures.py (keep the two in
-// step): a layout is a list of [x, y, width, height] rects as fractions of
+// Layouts for the editor, the same rules as tapzones/layout.py (kept in
+// step by tests/test_layout.py): a layout is a list of [x, y, width, height] rects as fractions of
 // the screen from the top-left, one per section.
 
 var GESTURES = ["single", "double", "triple", "two_finger", "three_finger"]
@@ -30,15 +30,164 @@ function grid(cols, rws) {
   return out
 }
 
-var PRESET_ORDER = ["whole screen", "top / bottom", "left / right", "3 rows", "quadrants", "5 rows", "3 columns"]
-var PRESETS = {
-  "whole screen": rows(1), "top / bottom": rows(2), "left / right": columns(2), "3 rows": rows(3),
-  "quadrants": grid(2, 2), "5 rows": rows(5), "3 columns": columns(3)
+// ------------------------------------------------------- the presets
+//
+// Layouts come only from presets (layout.py has the same generator): every
+// layout straight cuts can make for 1–5 sections, "1 / 2" for rows (top to
+// bottom) and "1 | 2" for columns (left to right), plus corners + centre
+// (a section over the middle of the quadrants) and a few of 6.
+
+var COUNTS = [1, 2, 3, 4, 5, 6]
+
+function compositions(n) {
+  var out = []
+  for (var first = 1; first < n; first++) {
+    out.push([first, n - first])
+    var tails = compositions(n - first)
+    for (var t = 0; t < tails.length; t++) out.push([first].concat(tails[t]))
+  }
+  return out
 }
-var PRESET_NAMES = {
-  "whole screen": ["Anywhere"], "top / bottom": ["Top", "Bottom"], "left / right": ["Left", "Right"],
-  "3 rows": ["Top", "Middle", "Bottom"], "quadrants": ["Top left", "Top right", "Bottom left", "Bottom right"],
-  "5 rows": ["Row 1", "Row 2", "Row 3", "Row 4", "Row 5"], "3 columns": ["Left", "Middle", "Right"]
+
+function cuts(n, box, across) {
+  var x = box[0], y = box[1], w = box[2], h = box[3], out = []
+  var all = compositions(n)
+  for (var p = 0; p < all.length; p++) {
+    var parts = all[p], k = parts.length, options = []
+    for (var i = 0; i < k; i++) {
+      var band = across ? [x, y + i * h / k, w, h / k] : [x + i * w / k, y, w / k, h]
+      options.push(fill(parts[i], band, !across))
+    }
+    // Every combination of the bands' options, the first band varying slowest.
+    var combos = [[]]
+    for (i = 0; i < k; i++) {
+      var next = []
+      for (var c = 0; c < combos.length; c++)
+        for (var o = 0; o < options[i].length; o++) next.push(combos[c].concat([options[i][o]]))
+      combos = next
+    }
+    for (c = 0; c < combos.length; c++) {
+      var rects = [], labels = []
+      for (i = 0; i < k; i++) { rects = rects.concat(combos[c][i][0]); labels.push(combos[c][i][1]) }
+      out.push([rects, labels.join(across ? " / " : " | ")])
+    }
+  }
+  return out
+}
+
+function fill(n, box, across) {
+  if (n === 1) return [[[box], "1"]]
+  var plain = []
+  for (var i = 0; i < n; i++) plain.push("1")
+  plain = plain.join(across ? " / " : " | ")
+  return cuts(n, box, across).map(function(r) { return [r[0], r[1] === plain ? String(n) : "(" + r[1] + ")"] })
+}
+
+function round6(v) { return Math.round(v * 1e6) / 1e6 }
+
+function readingOrder(rects) {
+  return rects.slice().sort(function(a, b) { return round6(a[1]) - round6(b[1]) || round6(a[0]) - round6(b[0]) })
+}
+
+function sectionNames(rects) {
+  var n = rects.length, i
+  var numbered = function(word) { return rects.map(function(r, j) { return word + " " + (j + 1) }) }
+  if (n > 3 && rects.every(function(r) { return r[2] > 1 - 1e-9 })) return numbered("Row")
+  if (n > 3 && rects.every(function(r) { return r[3] > 1 - 1e-9 })) return numbered("Column")
+  var word = function(c, low, mid, high) { return c < 1 / 3 - 1e-9 ? low : c > 2 / 3 + 1e-9 ? high : mid }
+  var names = rects.map(function(r) {
+    var v = r[3] > 1 - 1e-9 ? "" : word(r[1] + r[3] / 2, "Top", "Middle", "Bottom")
+    var s = r[2] > 1 - 1e-9 ? "" : word(r[0] + r[2] / 2, "Left", "Centre", "Right")
+    return v && s ? v + " " + s.toLowerCase() : v || s || "Anywhere"
+  })
+  // The same place twice: number them.
+  var distinct = names.filter(function(m, j) { return names.indexOf(m) === j }).sort()
+  for (var d = 0; d < distinct.length; d++) {
+    var same = []
+    for (i = 0; i < n; i++) if (names[i] === distinct[d]) same.push(i)
+    if (same.length > 1) for (var j = 0; j < same.length; j++) names[same[j]] = distinct[d] + " " + (j + 1)
+  }
+  return names
+}
+
+function friendly(rects) {
+  var n = rects.length
+  if (n === 1) return "whole screen"
+  if (rects.every(function(r) { return r[2] > 1 - 1e-9 })) return n === 2 ? "top / bottom" : n + " rows"
+  if (rects.every(function(r) { return r[3] > 1 - 1e-9 })) return n === 2 ? "left / right" : n + " columns"
+  if (n === 4 && rects.every(function(r) { return Math.abs(r[2] - 0.5) < 1e-9 && Math.abs(r[3] - 0.5) < 1e-9 }))
+    return "quadrants"
+  return null
+}
+
+// What most people pick for each count: listed first, and where the editor
+// lands when the count changes.
+var DEFAULTS = { 1: "whole screen", 2: "top / bottom", 3: "3 rows", 4: "quadrants",
+                 5: "corners + centre", 6: "3 × 2 grid" }
+
+// [how deeply the cuts nest, how many cuts] from a layout's label.
+function complexity(label) {
+  var depth = 0, deepest = 0, numbers = label.match(/\d+/g) || [], n = 1
+  for (var i = 0; i < label.length; i++) {
+    depth += (label[i] === "(") - (label[i] === ")")
+    deepest = Math.max(deepest, depth)
+    if (label[i] === "(") n++
+  }
+  for (i = 0; i < numbers.length; i++) if (Number(numbers[i]) > 1) n++
+  return [deepest, n]
+}
+
+// The quadrants with a section over the middle (sections listed first sit
+// over the others): four L-shaped corners round a centre.
+function cornersAndCentre() {
+  return { rects: [[0.3, 0.3, 0.4, 0.4]].concat(grid(2, 2)),
+           names: ["Centre", "Top left", "Top right", "Bottom left", "Bottom right"] }
+}
+
+// [{ name, rects, names, over }] of every preset with n sections, the usual
+// one first, then the simplest; `over` is how many of the first sections
+// sit over the others.
+function catalogue(n) {
+  if (n === 6) {
+    var six = [[grid(3, 2), "3 × 2 grid"], [grid(2, 3), "2 × 3 grid"], [rows(6), null], [columns(6), null]]
+    return six.map(function(s) {
+      return { name: friendly(s[0]) || s[1], rects: s[0], names: sectionNames(s[0]), over: 0 }
+    })
+  }
+  var out = [], seen = {}
+  for (var pass = 0; pass < 2; pass++) {
+    var found = n > 1 ? cuts(n, [0, 0, 1, 1], pass === 0) : [[[[0, 0, 1, 1]], "1"]]
+    for (var f = 0; f < found.length; f++) {
+      var rects = readingOrder(found[f][0])
+      var key = JSON.stringify(rects.map(function(r) { return r.map(round6) }))
+      if (seen[key]) continue
+      seen[key] = true
+      out.push({ name: friendly(rects) || found[f][1], rects: rects, names: sectionNames(rects), over: 0,
+                 rank: complexity(found[f][1]) })
+    }
+  }
+  if (n === 5) {
+    var cc = cornersAndCentre()
+    out.push({ name: "corners + centre", rects: cc.rects, names: cc.names, over: 1, rank: [0, 0] })
+  }
+  out.forEach(function(p, i) { p.i = i })
+  out.sort(function(a, b) {
+    return (a.name !== DEFAULTS[n]) - (b.name !== DEFAULTS[n]) || a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1] || a.i - b.i
+  })
+  return out.map(function(p) { return { name: p.name, rects: p.rects, names: p.names, over: p.over } })
+}
+
+// name → rects, in order of section count, the usual first; BY_COUNT[n]
+// lists the names with n sections.
+var PRESETS = {}, PRESET_NAMES = {}, PRESET_OVER = {}, BY_COUNT = {}
+for (var _c = 0; _c < COUNTS.length; _c++) {
+  var _all = catalogue(COUNTS[_c])
+  BY_COUNT[COUNTS[_c]] = _all.map(function(p) { return p.name })
+  for (var _k = 0; _k < _all.length; _k++) {
+    PRESETS[_all[_k].name] = _all[_k].rects
+    PRESET_NAMES[_all[_k].name] = _all[_k].names
+    PRESET_OVER[_all[_k].name] = _all[_k].over
+  }
 }
 
 // Commands offered next to the free-text field: common Omarchy actions.
@@ -66,26 +215,24 @@ function sameRect(a, b) {
   return true
 }
 
-// The preset a layout is, or "custom".
+// The preset a layout is, or "custom" (moved or resized).
 function presetOf(sections) {
-  for (var k = 0; k < PRESET_ORDER.length; k++) {
-    var p = PRESETS[PRESET_ORDER[k]]
-    if (p.length !== sections.length) continue
-    var same = true
+  var names = BY_COUNT[sections.length] || []
+  for (var k = 0; k < names.length; k++) {
+    var p = PRESETS[names[k]], same = true
     for (var i = 0; i < p.length && same; i++) same = sameRect(p[i], sections[i].rect)
-    if (same) return PRESET_ORDER[k]
+    if (same) return names[k]
   }
   return "custom"
 }
 
-// Sections of the next (step 1) or previous (-1) preset; commands are kept
-// by position, so trying presets doesn't lose them.
-function stepPreset(sections, step) {
-  var cur = PRESET_ORDER.indexOf(presetOf(sections))
-  var k = cur < 0 ? 0 : (cur + step + PRESET_ORDER.length) % PRESET_ORDER.length
-  var name = PRESET_ORDER[k]
+// The sections of preset `name`; commands are kept by position, so trying
+// presets doesn't lose them.
+function applyPreset(sections, name) {
   return PRESETS[name].map(function(r, j) {
-    return { name: PRESET_NAMES[name][j], rect: r.slice(), command: j < sections.length ? sections[j].command : "" }
+    var s = { name: PRESET_NAMES[name][j], rect: r.slice(), command: j < sections.length ? sections[j].command : "" }
+    if (j < PRESET_OVER[name]) s.over = true
+    return s
   })
 }
 
@@ -105,15 +252,19 @@ function problems(cfg, gesture) {
   var g = cfg[gesture], out = []
   var rects = layoutOf(g.sections)
   if (g.enabled && rects.length === 0) out.push("add a section, or turn the gesture off")
-  if (rects.length > cfg.max_sections)
-    out.push(rects.length + " sections: more than max_sections (" + cfg.max_sections + ")")
+  // More than max_sections isn't a problem: it's the recommended limit, and the editor only warns.
   for (var i = 0; i < rects.length; i++) {
     var r = rects[i], name = g.sections[i].name
     if (r[0] < -1e-6 || r[1] < -1e-6 || r[0] + r[2] > 1 + 1e-6 || r[1] + r[3] > 1 + 1e-6)
       out.push(name + " goes off the screen")
     if (r[2] < MIN_SIDE || r[3] < MIN_SIDE)
       out.push(name + " is smaller than " + Math.round(MIN_SIDE * 100) + "% of the screen")
+    var over = function(k) { return !!g.sections[k].over }
+    if (over(i)) {
+      for (var k = 0; k < i; k++) if (!over(k)) { out.push(name + " sits over the others, so it must come first"); break }
+    }
     for (var j = 0; j < i; j++) {
+      if (over(i) || over(j)) continue    // one sits over the other and takes that area
       var a = rects[j]
       if (a[0] < r[0] + r[2] - 1e-6 && r[0] < a[0] + a[2] - 1e-6 && a[1] < r[1] + r[3] - 1e-6 && r[1] < a[1] + a[3] - 1e-6)
         out.push(g.sections[j].name + " and " + name + " overlap")
@@ -166,6 +317,15 @@ function quickEstimate(est, layout) {
   for (i = 0; i < n; i++)
     per.push({ acc: counts[i] >= est.min_taps ? right[i] / counts[i] : NaN, n: counts[i] })
   return { overall: kept ? ok / kept : NaN, per: per }
+}
+
+// The presets with n sections as [{ name, acc }], the usual one first, then
+// the simplest; acc is the estimate, -1 without one.
+function choicesFor(est, n) {
+  return (BY_COUNT[n] || []).map(function(name) {
+    var e = est ? quickEstimate(est, PRESETS[name]) : null
+    return { name: name, acc: e && !isNaN(e.overall) ? e.overall : -1 }
+  })
 }
 
 function pct(a) { return Math.round(a * 100) + "%" }

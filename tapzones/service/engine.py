@@ -1,10 +1,6 @@
-#!/usr/bin/env python3
 """The tapzones service (docs/Gestures/Gesture system.md), with no UI: it
 listens to the mic and runs the command of the section a gesture lands in.
-
-    taps.py run                 the service (or the systemd unit tapzones.service)
-    taps.py status              what it's doing, as JSON
-    taps.py pause | resume | toggle
+`tapzones run`, or the systemd unit tapzones.service.
 
 Reads ~/.config/tapzones/gestures.toml and the section model trained for it,
 and reloads both when they change. Single taps only so far
@@ -22,17 +18,15 @@ one JSON object per line each way:
     ← {"event": "state", ...} · "tap" · "unsure" · "ignored" · "saved"
       · "trained" · "estimate" · "error"
 
-The Omarchy plugin (manifest.json, omarchy/) and the GTK flash (flash.py)
-are such front-ends. With feedback = "flash" and no UI connected, the
-service sends a notification instead, so feedback never silently vanishes.
+The Omarchy plugin (manifest.json, omarchy/), the GTK flash (gtk/flash.py)
+and `tapzones status` (client.py) are such front-ends. With feedback =
+"flash" and no UI connected, the service sends a notification instead, so
+feedback never silently vanishes.
 """
-import json, os, queue, socket, subprocess, sys, threading, time
-import gestures, mic
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-SOCKET = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/tapzones-{os.getuid()}", "tapzones.sock")
-STATE = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "tapzones")
-PAUSED = os.path.join(STATE, "paused")       # present while paused; survives restarts
+import json, os, queue, signal, socket, subprocess, sys, threading, time
+from .. import audio, config, layout
+from ..models import Gate, SectionModel, model_path
+from ..paths import CONFIG, DATA, STATE, PAUSED, SOCKET
 
 
 def log(msg):
@@ -59,21 +53,21 @@ class Engine:
         self.preparing = False
         self.paused = os.path.exists(PAUSED)
         self.warned = None
-        self.gate = gestures.Gate()
+        self.gate = Gate()
         self.reload()
 
     # ------------------------------------------------ config and model
 
     def stamp(self):
         return tuple(os.path.getmtime(p) if os.path.exists(p) else 0
-                     for p in (gestures.CONFIG, gestures.model_path("single")))
+                     for p in (CONFIG, model_path("single")))
 
     def reload(self):
         self.seen = self.stamp()
-        self.cfg = gestures.load()
+        self.cfg = config.load()
         single = self.cfg["single"]
         self.sections = single["sections"] if single["enabled"] else []
-        self.model = gestures.SectionModel("single", [s["rect"] for s in self.sections]) if self.sections else None
+        self.model = SectionModel("single", [s["rect"] for s in self.sections]) if self.sections else None
         if self.model and not self.model.ok:
             why = f"single taps are off: {self.model.why}. Open the layout editor and save to train it."
             log(why)
@@ -94,15 +88,15 @@ class Engine:
                 "gate": bool(self.gate.d), "config": self.cfg, "model": model,
                 "training": {"gesture": self.training[1], "since": self.training[3]} if self.training else None,
                 "estimate": "ready" if self.estimate else "preparing" if self.preparing else "none",
-                "detected": sorted(gestures.DETECTED), "socket": SOCKET}
+                "detected": sorted(config.DETECTED), "socket": SOCKET}
 
     # ----------------------------------------------------------- loop
 
     def run(self):
         self.listen()
-        self.mic = mic.Mic(lambda w: None, lambda w, t: self.q.put(("tap", w, t)))
+        self.mic = audio.Mic(lambda w: None, lambda w, t: self.q.put(("tap", w, t)))
         self.mic.start()
-        log(f"listening on {mic.SOURCE}: gate {'on' if self.gate.d else 'off'}, "
+        log(f"listening on {audio.SOURCE}: gate {'on' if self.gate.d else 'off'}, "
             f"feedback {self.cfg['feedback']}{', paused' if self.paused else ''}; socket {SOCKET}")
         while True:
             try:
@@ -135,7 +129,7 @@ class Engine:
     # ----------------------------------------------------------- taps
 
     def quiet(self):
-        return mic.overlay_open() or any(c.editing for c in self.clients)
+        return audio.overlay_open() or any(c.editing for c in self.clients)
 
     def on_tap(self, window, heard_at):
         if self.paused or self.quiet() or not self.model or not self.model.ok:
@@ -205,45 +199,60 @@ class Engine:
             cfg = self.checked(cfg)
         except ValueError as e:
             return client.send({"event": "error", "message": f"not saved: {e}"})
-        gestures.save(cfg)
+        config.save(cfg)
         self.reload()
-        self.broadcast({"event": "saved", "path": gestures.CONFIG})
+        self.broadcast({"event": "saved", "path": CONFIG})
         if cfg["single"]["enabled"] and not (self.model and self.model.ok):
             self.train("single")
+        elif self.training and self.training[1] == "single":
+            # The saved layout already has a model (say, an edit was undone and
+            # saved again): the run in progress is for a layout nobody wants,
+            # and would replace the good model when it finished.
+            self.stop_training()
+            log("training single: stopped, the saved layout already has a model")
         self.broadcast(self.state())
 
     @staticmethod
     def checked(cfg):
-        """The config a client sent, in gestures' shape, or ValueError."""
-        out = gestures.default_config()
+        """The config a client sent, in config.load's shape, or ValueError."""
+        out = config.default_config()
         out["feedback"] = cfg.get("feedback", out["feedback"])
         out["max_sections"] = int(cfg.get("max_sections", out["max_sections"]))
-        if out["feedback"] not in gestures.FEEDBACK:
-            raise ValueError(f"feedback must be one of {', '.join(gestures.FEEDBACK)}")
-        for g in gestures.GESTURES:
+        if out["feedback"] not in config.FEEDBACK:
+            raise ValueError(f"feedback must be one of {', '.join(config.FEEDBACK)}")
+        for g in config.GESTURES:
             if g in cfg:
                 out[g] = {"enabled": bool(cfg[g].get("enabled")),
-                          "sections": [{"name": str(s.get("name") or f"Section {i + 1}"),
-                                        "rect": [float(v) for v in s["rect"]][:4],
-                                        "command": str(s.get("command", ""))}
+                          "sections": [config.section(s.get("name") or f"Section {i + 1}", s["rect"],
+                                                      s.get("command", ""), s.get("over"))
                                        for i, s in enumerate(cfg[g].get("sections", []))]}
-            if bad := gestures.problems(out, g):
-                raise ValueError(f"{gestures.TITLES[g]}: {bad[0]}")
+            if bad := layout.problems(out, g):
+                raise ValueError(f"{config.TITLES[g]}: {bad[0]}")
         return out
+
+    def stop_training(self):
+        """Stop the training run and its joblib workers (its own session)."""
+        proc = self.training[0]
+        self.training = None
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        proc.wait()
 
     def train(self, g):
         if self.training:
-            self.training[0].kill()
-        path = os.path.join(gestures.DATA, f"train-{g}.log")
-        proc = subprocess.Popen([sys.executable, "-W", "ignore", os.path.join(HERE, "ml.py"), "--export-sections", g],
-                                stdout=open(path, "w"), stderr=subprocess.STDOUT, start_new_session=True)
+            self.stop_training()
+        path = os.path.join(DATA, f"train-{g}.log")
+        proc = subprocess.Popen(train_command(g), stdout=open(path, "w"), stderr=subprocess.STDOUT,
+                                start_new_session=True)
         self.training = (proc, g, path, time.time())
         log(f"training {g} (log: {path})")
 
     def send_estimate(self, client):
         if self.estimate:
             P, where = self.estimate
-            return client.send({"event": "estimate", "cells": gestures.CELLS, "min_taps": gestures.MIN_TAPS,
+            return client.send({"event": "estimate", "cells": layout.CELLS, "min_taps": layout.MIN_TAPS,
                                 "P": [[round(float(v), 4) for v in row] for row in P],
                                 "where": [[round(float(v), 4) for v in w] for w in where]})
         if not self.preparing:
@@ -253,7 +262,7 @@ class Engine:
 
     def prepare_estimate(self):
         try:
-            self.estimate = gestures.estimate_data(log)
+            self.estimate = layout.estimate_data(log)
         finally:
             self.preparing = False
         self.q.put(("estimate_ready",))
@@ -267,7 +276,8 @@ class Engine:
     # --------------------------------------------------------- socket
 
     def listen(self):
-        os.makedirs(os.path.dirname(SOCKET), exist_ok=True)
+        if not SOCKET:
+            sys.exit("tapzones needs $XDG_RUNTIME_DIR: a directory only you can open (systemd's user session sets it)")
         if os.path.exists(SOCKET):
             try:
                 socket.socket(socket.AF_UNIX).connect(SOCKET)
@@ -275,8 +285,11 @@ class Engine:
             except OSError:
                 os.remove(SOCKET)                # left over from a crash
         self.server = socket.socket(socket.AF_UNIX)
-        self.server.bind(SOCKET)
-        os.chmod(SOCKET, 0o600)
+        old = os.umask(0o077)                    # owner-only from the moment it exists
+        try:
+            self.server.bind(SOCKET)
+        finally:
+            os.umask(old)
         self.server.listen()
         threading.Thread(target=self.accept, daemon=True).start()
 
@@ -319,39 +332,16 @@ class Engine:
                 self.on_gone(c)
 
 
-def client(cmd):
-    """`taps.py status|pause|resume|toggle`: one command to a running service."""
-    s = socket.socket(socket.AF_UNIX)
-    try:
-        s.connect(SOCKET)
-    except OSError:
-        sys.exit(f"tapzones isn't running (no {SOCKET}). Start it: systemctl --user start tapzones")
-    f = s.makefile("rw")
-    f.write(json.dumps({"cmd": cmd}) + "\n")
-    f.flush()
-    for line in f:
-        msg = json.loads(line)
-        if msg.get("event") == "state":
-            m = msg["model"]
-            print(json.dumps({k: msg[k] for k in ("paused", "editing", "gate", "training", "estimate")} |
-                             {"model": {k: v for k, v in m.items() if k != "per_section"}}, indent=2))
-            return 0
+def train_command(gesture):
+    """Trains a section model in a separate process (it takes a minute or
+    two): the same Python, so the same install."""
+    return [sys.executable, "-W", "ignore", "-m", "tapzones", "train", "sections", gesture]
 
 
-def main(argv=()):
-    import argparse
-    p = argparse.ArgumentParser(prog="taps.py", description="the tapzones service")
-    p.add_argument("cmd", choices=["run", "status", "pause", "resume", "toggle"])
-    a = p.parse_args(argv)
-    if a.cmd != "run":
-        return client(a.cmd)
+def run():
     engine = Engine()
     try:
         return engine.run()
     finally:
         if getattr(engine, "server", None) and os.path.exists(SOCKET):
             os.remove(SOCKET)            # only a socket this process bound
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
