@@ -1,6 +1,8 @@
 """The full-screen overlay to record taps, see what the mic hears, and test
 the models: `tapzones calibrate | test | free | locate | collect | noise`
-(docs/usage.md has each mode).
+(docs/usage.md has each mode), and `tapzones setup`, a new device's first
+calibration (a short collect session, then everyday noise), which the panel
+starts.
 
 Keys: Esc quit · Backspace undo last tap · R recalibrate · T test round ·
       F free tapping · V calibration results · N (free tapping) the last
@@ -29,6 +31,11 @@ LOCATE_TRAIL = 25              # locate mode: how many past taps stay drawn
 COLLECT_PER_SPOT = 5           # grid phase: taps per spot (9 spots × 4 quadrants)
 COLLECT_PER_ZONE = 30          # random phase: points per quadrant
 MIN_GAP_PX = 55                # random points stay this far from each other and the grid
+# Setup: a collect session short enough for a first run (104 taps, about
+# 2 min), then SETUP_NOISE_S of everyday sounds that aren't taps, for the gate.
+SETUP_PER_SPOT = 2
+SETUP_PER_ZONE = 8
+SETUP_NOISE_S = 45
 NOT_A_TAP = 4                  # label for everything that isn't a screen tap
 # Noise session: sounds that must never count as a tap, one prompt at a time.
 NOISE_PROMPTS = [
@@ -225,6 +232,11 @@ class App:
         self.plan = []                   # collect session: (point, phase) for every tap, in order
         self.collect_goal = 0
         self.collect_file = time.strftime("collect-%Y%m%d-%H%M%S.npz")
+        self.setup = mode == "setup"     # collect, then the quiet stage (mode "quiet"), then "done"
+        if self.setup:
+            mode = f"collect:{SETUP_PER_SPOT}:{SETUP_PER_ZONE}"
+            self.noise_windows, self.quiet_since = [], None
+            self.noise_file = time.strftime("noise-setup-%Y%m%d-%H%M%S.npz")
         if mode == "test":
             if self.learned or self.load():
                 self.start_test()
@@ -546,6 +558,15 @@ class App:
             # Every 10 taps, and at the end: an Esc or a crash keeps nearly all.
             if len(self.collected) % 10 == 0 or len(self.collected) == self.collect_goal:
                 self.save_collected()
+            if self.setup and len(self.collected) == self.collect_goal:
+                self.mode, self.quiet_since = "quiet", time.time() + 1.5
+                self.pause_until = self.quiet_since          # the last tap's ring-out isn't noise
+                GLib.timeout_add(250, self.quiet_tick)
+        elif self.mode == "quiet":
+            self.noise_windows.append(window)
+            self.last = (window, curve, env, None, None, None)
+            if len(self.noise_windows) % 5 == 0:
+                self.save_noise()
         elif self.mode == "locate":
             guess = self.locator.predict(window)
             self.located.append({"window": window, "where": self.locate_target, "guess": guess, "at": time.time()})
@@ -561,6 +582,35 @@ class App:
             if guess is not None and ms is None:
                 self.flash = (guess, time.time())
 
+    def save_noise(self):
+        """Setup's quiet stage: every sound caught, as noise-setup-<time>.npz."""
+        if self.noise_windows:
+            os.makedirs(DATA, exist_ok=True)
+            np.savez_compressed(os.path.join(DATA, self.noise_file), windows=np.array(self.noise_windows, np.float32))
+
+    def quiet_tick(self):
+        """Ends setup's quiet stage when its time is up; the overlay closes a
+        moment later and the service, seeing new recordings, trains."""
+        if self.mode != "quiet":
+            return False
+        if time.time() - self.quiet_since < SETUP_NOISE_S:
+            return True
+        self.save_noise()
+        self.mode = "done"
+        GLib.timeout_add(2500, lambda: self.close() and False)
+        return False
+
+    def close(self):
+        if self.mode == "collect":
+            self.save_collected()
+        if self.setup:
+            self.save_noise()
+        if self.mic.tape:
+            self.mic.tape, tape = None, self.mic.tape
+            tape.close()
+        self.mic.stop()
+        self.win.get_application().quit()
+
     def mark_noise(self):
         """N in free mode: the last sound wasn't a screen tap. Kept with this
         run's other false alarms as noise-free-<time>.npz, which the next
@@ -574,19 +624,15 @@ class App:
     def key(self, _c, keyval, _code, _state):
         # The keyboard is loud too: don't count the next 0.4 s as a tap.
         # (Except when typing is the very noise being recorded.)
-        if self.mode != "noise":
+        if self.mode not in ("noise", "quiet"):
             self.mic.mute_until = time.time() + 0.4
         name = Gdk.keyval_name(keyval)
-        if self.mode == "noise" and name != "Escape":
+        if self.mode in ("noise", "quiet", "done") and name != "Escape":
             return True   # typing is part of the noise; only Esc does anything
         if name == "Escape":
-            if self.mode == "collect":
-                self.save_collected()
-            if self.mic.tape:
-                self.mic.tape, tape = None, self.mic.tape
-                tape.close()
-            self.mic.stop()
-            self.win.get_application().quit()
+            self.close()
+        elif self.setup and name != "BackSpace":
+            pass          # setup: only Backspace (while tapping) and Esc
         elif name == "BackSpace" and self.mode == "collect" and self.collected:
             self.collected.pop()
         elif name == "BackSpace" and self.mode == "locate" and self.located:
@@ -635,11 +681,15 @@ class App:
             self.collect_marks(cr, w, h)
         elif self.mode == "noise":
             self.noise_prompt(cr, w, h)
+        elif self.mode in ("quiet", "done"):
+            self.quiet_marks(cr, w, h)
         elif self.mode == "locate":
             self.locate_marks(cr, w, h)
         collecting = self.mode == "collect" and len(self.collected) < self.collect_goal
-        if self.mode == "noise":
+        if self.mode in ("noise", "quiet"):
             self.scope(cr, w / 2 - 300, h * 0.62, 600, 140)
+        elif self.mode == "done":
+            pass
         elif self.mode == "review":
             self.review(cr, w, h)
         elif self.mode == "test" and not testing:
@@ -700,7 +750,7 @@ class App:
         cr.push_group()
         self.spectrum_plot(cr, z, px, py, pw, ph)
         cr.pop_group_to_source()
-        cr.paint_with_alpha(0.35 if target or self.mode in ("test", "collect", "locate") else 1.0)
+        cr.paint_with_alpha(0.35 if target or self.mode in ("test", "collect", "locate", "quiet", "done") else 1.0)
 
     @staticmethod
     def spot_xy(z, i):
@@ -816,10 +866,28 @@ class App:
             left = (self.collect_goal - n) / pace / 60 if pace else 0
             stage = "1 · grid" if phase != "random" else "2 · random points"
             status = f"phase {stage}  ·  {n}/{self.collect_goal} taps" + (f"  ·  ~{left:.0f} min left" if pace else "")
+            if self.setup:
+                status = f"Step 1 of 2: tap inside the ring  ·  {n}/{self.collect_goal}" + (f"  ·  ~{max(1, round(left))} min left" if pace else "")
+                self.text(cr, "Tap as you normally would.  Backspace undoes a tap  ·  Esc stops",
+                          w / 2, 52, 13, FG, 0.55, center=True)
             self.text(cr, status, w / 2, 28, 15, FG, 0.8, center=True)
         else:
             self.text(cr, f"Done: {n} taps saved to {self.collect_file}", w / 2, h / 2 - 10, 20, ACCENT, center=True)
             self.text(cr, "Esc to close", w / 2, h / 2 + 22, 14, FG, 0.7, center=True)
+
+    def quiet_marks(self, cr, w, h):
+        """Setup's quiet stage: what to do, a countdown and the sounds caught."""
+        if self.mode == "done":
+            self.text(cr, "Calibrated", w / 2, h / 2 - 10, 28, ACCENT, center=True)
+            self.text(cr, "Training now: the tapzones menu shows how it's going", w / 2, h / 2 + 24, 15, FG, 0.7, center=True)
+            return
+        left = SETUP_NOISE_S - max(0.0, time.time() - self.quiet_since)
+        self.text(cr, "Step 2 of 2: don't touch the screen", w / 2, h * 0.3, 24, FG, center=True)
+        self.text(cr, "Type, click, set a mug down, knock the desk, move the lid",
+                  w / 2, h * 0.3 + 34, 15, FG, 0.7, center=True)
+        n = len(self.noise_windows)
+        self.text(cr, f"0:{int(left):02d}  ·  {n} sound{'s' if n != 1 else ''} caught",
+                  w / 2, h * 0.3 + 90, 20, ACCENT, center=True)
 
     def locate_marks(self, cr, w, h):
         """Locate mode: for each recent tap, where you tapped (hollow ring),

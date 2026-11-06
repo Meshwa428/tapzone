@@ -12,18 +12,17 @@ Priority: **P0** blocks a first user · **P1** needed for a good first release �
 
 ## 1. First run and calibration (per device)
 
-- [ ] **P0 — No model on a fresh install.** Today the service assumes the models
-      exist. A new device needs a first-run state: service up, nothing
-      trained, the bar icon and the settings menu say so and lead into
-      calibration.
-- [ ] **P0 — Calibration in the GUI.** Record taps on targets shown on screen
-      (what `tapzones collect` does in a terminal today), as a window or
-      overlay in the settings menu. Store each tap's `where` (x, y), so any
-      layout can be trained from it later.
-- [ ] **P0 — Record the device's noise too.** The noise filter (`gate.joblib`)
-      learned from one desk. Calibration needs a short "do normal things"
-      recording (typing, setting things down, knocks), as `tapzones noise`
-      does today.
+- [x] **P0 — No model on a fresh install.** Built 2026-11-06: with no recorded
+      taps the service says "not calibrated yet" (and notifies once), and
+      the bar panel shows only "Start calibration".
+- [x] **P0 — Calibration in the GUI.** Built 2026-11-06: `tapzones setup`, a
+      short collect session (104 taps, ~2 min), opened by the service
+      (socket `calibrate`) from the panel. When the overlay closes with new
+      sessions, the service trains the single-tap model, then the gate.
+      A lone sitting is scored by its halves (`train.sittings`) and shown as
+      an estimate.
+- [x] **P0 — Record the device's noise too.** Built 2026-11-06: setup's second
+      step, 45 s of everyday sounds → `noise-setup-*.npz`.
 - [x] **P0 — "That wasn't a tap", in everyday use.** Built 2026-11-06: the
       service keeps the sound of the most recent tap that ran a command
       (one 175 ms window, nothing older); the bar panel's "That wasn't a
@@ -136,8 +135,11 @@ that the service applies live, without a restart.
       right more often), with the measured trade-off shown.
 - [ ] **P1 — Typing pause**: taps are ignored for 0.4 s after a key press.
 - [ ] **P1 — Double/triple timing**: the gap window.
-- [ ] **P1 — Feedback** (flash / notify / none): move it here from the layout
-      editor.
+- [x] **Settings page** in the bar panel (the gear), built 2026-11-06:
+      calibration status and "Calibrate again", the noise filter, feedback
+      and sound (socket `set`: saved without retraining).
+- [ ] **P1 — Feedback** (flash / notify / none): now in settings too; remove it
+      from the layout editor.
 - [ ] **P1 — Start at login** (enable the systemd unit), and pause/resume.
 - [ ] **P2 — Data**: where recordings are, how much space, export, delete.
 

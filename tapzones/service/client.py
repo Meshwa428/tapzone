@@ -57,8 +57,8 @@ def send(cmd, section=None):
                   f"({msg['total']} marked in all); the noise filter retrains shortly")
             return 0
         if event == "confirmed":
-            print(f"confirmed the last miss as a tap in {msg['name']!r} and ran it "
-                  f"({msg['total']} confirmed in all); the noise filter retrains shortly")
+            what = f"the last tap (it ran {msg['was']!r})" if msg.get("was") else "the last miss"
+            print(f"kept {what} as a tap in {msg['name']!r} and ran it ({msg['total']} corrected in all)")
             return 0
         if event == "state" and cmd not in ("mistake", "confirm"):
             states += 1

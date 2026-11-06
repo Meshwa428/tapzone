@@ -32,6 +32,8 @@ Item {
   property var markResult: null
   // What the last "That was a tap" did: { ok, name, at }, or { ok: false, message, at }.
   property var confirmResult: null
+  // Why the last calibration didn't open or crashed: { message, at }.
+  property var calibrateError: null
   property int noiseCount: 0
   readonly property bool online: sock.connected && state !== null
   readonly property bool paused: online && state.paused
@@ -55,6 +57,14 @@ Item {
   // The last sound that ran nothing was a tap in section i: the service
   // runs it and keeps it as a tap.
   function confirm(i) { send({ cmd: "confirm", section: i }) }
+  // Opens the calibration overlay (tapzones setup); the service trains
+  // when it closes.
+  function calibrate() {
+    root.calibrateError = null
+    send({ cmd: "calibrate" })
+  }
+  // Feedback or sound, e.g. { sound: false }: saved, nothing retrains.
+  function setOptions(o) { send(Object.assign({ cmd: "set" }, o)) }
   function recordNoise(on) {
     if (on) root.noiseCount = 0
     send({ cmd: "noise", on: on })
@@ -74,9 +84,11 @@ Item {
     else if (msg.event === "error" && msg.cmd === "mistake")
       root.markResult = { ok: false, message: msg.message, at: Date.now() / 1000 }
     else if (msg.event === "confirmed")
-      root.confirmResult = { ok: true, name: msg.name, at: Date.now() / 1000 }
+      root.confirmResult = { ok: true, name: msg.name, was: msg.was, at: Date.now() / 1000 }
     else if (msg.event === "error" && msg.cmd === "confirm")
       root.confirmResult = { ok: false, message: msg.message, at: Date.now() / 1000 }
+    else if (msg.event === "error" && msg.cmd === "calibrate")
+      root.calibrateError = { message: msg.message, at: Date.now() / 1000 }
     else if (msg.event === "noise") root.noiseCount = msg.count
     else if (msg.event === "tap" || msg.event === "unsure") {
       root.lastTap = msg

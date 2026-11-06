@@ -10,3 +10,5 @@ docs/.obsidian/workspace*.json
 docs/.obsidian/themes/
 # Sound kits as downloaded (SND's terms: not redistributed on their own)
 *.zip
+# Recorded audio for experiments: large, and only this machine's
+research/results/**/*.raw

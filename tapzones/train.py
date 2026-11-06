@@ -34,6 +34,33 @@ def session_paths():
     return [p for p in paths if os.path.exists(p)]
 
 
+def sittings(groups):
+    """What to score leave-one-out by, a number per tap from its session's
+    file name: the sessions, or, with only one (a new device's first
+    calibration), its first and second half. That score is from the same
+    sitting, so it flatters: another sitting makes it honest. The user's
+    corrections (confirmed.npz) are -1: trained on in every fold, never held
+    out, since a model fitted on a handful of corrections can't score the rest."""
+    groups = np.asarray(groups)
+    out = np.unique(groups, return_inverse=True)[1]
+    out[groups == "confirmed.npz"] = -1
+    held = out >= 0
+    if len(np.unique(out[held])) == 1:
+        out[held] = np.arange(held.sum()) >= held.sum() // 2
+    return out
+
+
+def progress(fraction, stage):
+    """How far a training run is, as a log line the service reads
+    (engine.training_progress) and the editor draws as a bar."""
+    print(f"progress {fraction:.3f} {stage}", flush=True)
+
+
+def noise_paths():
+    """Every recording of what isn't a tap (noise_set reads them)."""
+    return sorted(glob.glob(os.path.join(DATA, "noise-*.raw")) + glob.glob(os.path.join(DATA, "noise-*.npz")))
+
+
 def signed_sessions():
     """[(name, raw mono windows, labels, where each tap came from)]: 'grid
     spot N', 'random', or '' for older sessions."""
@@ -278,11 +305,13 @@ def export_sections(gesture, copies=4):
     for i, path in enumerate(session_paths()):
         d = np.load(path)
         W.append(d["windows"].astype(np.float32)); where.append(np.asarray(d["where"], float))
-        sess.append(np.full(len(d["windows"]), i))
-    W, where, sess = np.concatenate(W), np.concatenate(where), np.concatenate(sess)
+        sess += [os.path.basename(path)] * len(d["windows"])
+    W, where, sess = np.concatenate(W), np.concatenate(where), np.array(sess)
     y = L.section_of(where, layout)
     keep = y >= 0
     W, y, sess = W[keep], y[keep], sess[keep]
+    n_sittings = len(set(sess) - {"confirmed.npz"})
+    sess = sittings(sess)
     counts = np.bincount(y, minlength=len(layout))
     names = [s["name"] for s in cfg[gesture]["sections"]]
     if len(layout) > 1 and counts.min() < L.MIN_TAPS:
@@ -291,9 +320,11 @@ def export_sections(gesture, copies=4):
     path = model_path(gesture)
     if len(layout) == 1:     # anywhere: nothing to tell apart
         joblib.dump({"models": [], "layout": layout, "hash": L.layout_hash(layout), "cutoff": 0.0,
-                     "accuracy": 1.0, "answered": 1.0, "answered_accuracy": 1.0, "per_section": [1.0], "taps": len(y)}, path)
+                     "accuracy": 1.0, "answered": 1.0, "answered_accuracy": 1.0, "per_section": [1.0], "taps": len(y),
+                     "sittings": n_sittings}, path)
         print(f"saved {path}: one section, every tap counts")
         return
+    progress(0.01, "preparing taps")
     bank = np.concatenate([w.mean(axis=1)[:720] for w in W])
     noisy = [noise_gain(W, s, bank) for s in range(copies)]
     X = np.concatenate([signed(W, **BEST1, shift=s) for s in (0,) + BEST_SHIFTS] + [signed(w, **BEST1) for w in noisy])
@@ -301,29 +332,45 @@ def export_sections(gesture, copies=4):
     Y = np.concatenate([y] * n_copies)
     # Out-of-session probabilities: the honest accuracy, and the cutoff.
     F = X[: len(y)]
-    jobs = [(sess != s, sess == s) for s in np.unique(sess)]
+    jobs = [(tr, te) for tr, te in ((sess != s, sess == s) for s in np.unique(sess[sess >= 0]))
+            if len(np.unique(y[tr])) == len(layout)]
+    # Taps no fold held out (corrections, a sitting whose fold was skipped)
+    # have no honest guess: they count toward nothing below.
+    scored = np.any([te for _, te in jobs], axis=0) if jobs else np.zeros(len(y), bool)
     P = np.zeros((len(y), len(layout)))
-    for te, p in Parallel(n_jobs=4)(delayed(_section_fold)(X, Y, n_copies, tr, te, F[te]) for tr, te in jobs
-                                    if len(np.unique(y[tr])) == len(layout)):
+    # Where the time goes: the folds run 4 at a time, then the final fit
+    # takes about as long as one round of them.
+    rounds = -(-len(jobs) // 4)
+    fold_share = 0.95 * rounds / (rounds + 1)
+    progress(0.05, "testing on each sitting")
+    for k, (te, p) in enumerate(Parallel(n_jobs=4, return_as="generator_unordered")(
+            delayed(_section_fold)(X, Y, n_copies, tr, te, F[te]) for tr, te in jobs)):
         P[te] = p
-    guess, conf = P.argmax(1), P.max(1)
+        progress(0.05 + fold_share * (k + 1) / len(jobs), f"testing on each sitting ({k + 1} of {len(jobs)})")
+    guess, conf, ys = P[scored].argmax(1), P[scored].max(1), y[scored]
     cutoff = 0.0
     for c in np.sort(np.unique(conf)):
         answered = conf >= c
         if answered.mean() < SECTION_MIN_ANSWER:
             break
         cutoff = c
-        if (guess[answered] == y[answered]).mean() >= SECTION_TARGET:
+        if (guess[answered] == ys[answered]).mean() >= SECTION_TARGET:
             break
     answered = conf >= cutoff
-    per = [float((guess[y == i] == i).mean()) for i in range(len(layout))]
-    models = [m.fit(X, Y) for m in section_models()]
+    per = [float((guess[ys == i] == i).mean()) if (ys == i).any() else 0.0 for i in range(len(layout))]
+    # The final fit, model by model; roughly what share of it each takes.
+    models, done = [], 0.05 + fold_share
+    for m, share, name in zip(section_models(), (0.6, 0.3, 0.1), ("SVM", "neural net", "logistic")):
+        progress(done, f"training the final model: {name}")
+        models.append(m.fit(X, Y))
+        done += (0.95 - fold_share) * share
+    progress(1.0, "saving")
     joblib.dump({"models": models, "layout": layout, "hash": L.layout_hash(layout), "cutoff": float(cutoff),
-                 "accuracy": float((guess == y).mean()), "answered": float(answered.mean()),
-                 "answered_accuracy": float((guess[answered] == y[answered]).mean()), "per_section": per,
-                 "taps": len(y)}, path)
-    print(f"saved {path}: {len(layout)} sections, {len(y)} taps. Across sessions: {(guess == y).mean():.1%} right; "
-          f"cutoff {cutoff:.2f} answers {answered.mean():.0%} of taps, {(guess[answered] == y[answered]).mean():.1%} of those right")
+                 "accuracy": float((guess == ys).mean()), "answered": float(answered.mean()),
+                 "answered_accuracy": float((guess[answered] == ys[answered]).mean()), "per_section": per,
+                 "taps": len(y), "sittings": n_sittings}, path)
+    print(f"saved {path}: {len(layout)} sections, {len(y)} taps. Across sessions: {(guess == ys).mean():.1%} right; "
+          f"cutoff {cutoff:.2f} answers {answered.mean():.0%} of taps, {(guess[answered] == ys[answered]).mean():.1%} of those right")
     print("  " + "  ".join(f"{n}: {a:.0%} ({c} taps)" for n, a, c in zip(names, per, counts)))
 
 # --------------------------------------------------- tap or not: the gate
@@ -359,14 +406,20 @@ def gate_data():
     return np.concatenate(T), np.array(tg), N.astype(np.float32), ng
 
 
-def tap_scores(FT, tg, FN, make=gate_model):
-    """Each tap's gate score from a gate that never saw that tap's session:
-    what the threshold is set from, so it holds for a new sitting."""
-    st = np.zeros(len(FT))
-    for g in np.unique(tg):
+def tap_scores(FT, tg, FN, make=gate_model, done=None):
+    """The gate score of each tap a held-out session has, from a gate that
+    never saw that session: what the threshold is set from, so it holds for
+    a new sitting. Corrections are never held out, so have none.
+    done(k, n) after each session, if given."""
+    st = np.full(len(FT), np.nan)
+    tg = sittings(tg)
+    groups = np.unique(tg[tg >= 0])
+    for k, g in enumerate(groups):
         m = make().fit(np.vstack([FT[tg != g], FN]), np.r_[np.ones((tg != g).sum()), np.zeros(len(FN))])
         st[tg == g] = m.decision_function(FT[tg == g])
-    return st
+        if done:
+            done(k + 1, len(groups))
+    return st[tg >= 0]
 
 
 def export_gate():
@@ -374,10 +427,17 @@ def export_gate():
     tap_features, taps vs every recorded noise, the threshold set to let
     GATE_KEEP of unseen sittings' taps through. → DATA/gate.joblib"""
     import joblib
+    progress(0.01, "preparing sounds")
     T, tg, N, ng = gate_data()
     FT, FN = tap_features(T), tap_features(N)
-    threshold = float(np.quantile(tap_scores(FT, tg, FN), 1 - GATE_KEEP))
+    # Each held-out sitting fits a gate on nearly everything: n + 1 fits in all.
+    step = lambda k, n: progress(0.1 + 0.9 * k / (n + 1), f"testing on each sitting ({k} of {n})")
+    progress(0.1, "testing on each sitting")
+    threshold = float(np.quantile(tap_scores(FT, tg, FN, done=step), 1 - GATE_KEEP))
+    held = sittings(tg)
+    progress(1 - 0.9 / (len(np.unique(held[held >= 0])) + 1), "training the final filter")
     model = gate_model().fit(np.vstack([FT, FN]), np.r_[np.ones(len(FT)), np.zeros(len(FN))])
+    progress(1.0, "saving")
     loud = would_fire(N)
     path = os.path.join(DATA, "gate.joblib")
     joblib.dump({"model": model, "threshold": threshold, "keep": GATE_KEEP, "taps": len(T),

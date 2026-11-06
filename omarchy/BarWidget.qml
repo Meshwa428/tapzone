@@ -28,7 +28,14 @@ BarWidget {
     var lines = ["tapzones: " + (svc.recording ? "recording what isn't a tap" : svc.paused ? "paused" : "listening")]
     var m = st.model
     if (svc.recording) lines.push(svc.noiseCount + " sounds caught")
-    else if (svc.training) lines.push(st.training.job === "gate" ? "retraining the noise filter…" : "training the " + st.training.job + "-tap model…")
+    else if (svc.training) {
+      // The tooltip is text: the bar is drawn with blocks (TrainingBar.qml in the panel).
+      var t = st.training, p = t.progress || 0, n = Math.round(p * 16)
+      var spent = Date.now() / 1000 - t.since, rest = p >= 0.08 ? spent * (1 - p) / p : -1
+      lines.push(t.job === "gate" ? "retraining the noise filter" : "training the " + t.job + "-tap model")
+      lines.push("█".repeat(n) + "░".repeat(16 - n) + "  " + Math.round(p * 100) + "%"
+                 + (rest < 0 ? "" : rest < 50 ? " · under a minute left" : " · about " + Math.round(rest / 60) + " min left"))
+    }
     else if (m.ok) lines.push("single tap: " + Math.round(m.answered_accuracy * 100) + "% right on the "
                               + Math.round(m.answered * 100) + "% of taps it answers")
     else lines.push(m.why)

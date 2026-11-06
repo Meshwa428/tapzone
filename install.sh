@@ -41,11 +41,15 @@ say() { printf '\033[1m%s\033[0m\n' "$*"; }
 # ------------------------------------------------------------ requirements
 need=()
 command -v parec >/dev/null || need+=("parec (PulseAudio tools; on Arch: libpulse)")
-python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null || need+=("python 3.11 or newer")
-if [[ $OMARCHY == no ]]; then
-  python3 -c 'import gi; gi.require_version("Gtk", "4.0")' 2>/dev/null || need+=("PyGObject with GTK 4 (on Arch: python-gobject gtk4)")
-  [[ -e /usr/lib/libgtk4-layer-shell.so ]] || need+=("gtk4-layer-shell")
-fi
+# The env is built on the system's Python: calibration (the GTK overlay)
+# needs its PyGObject, which a uv- or mise-managed Python doesn't have.
+gtk_ok='import sys, gi; gi.require_version("Gtk", "4.0"); sys.exit(sys.version_info < (3, 11))'
+PY=
+for p in /usr/bin/python3 "$(command -v python3 || true)"; do
+  [[ -x $p ]] && "$p" -c "$gtk_ok" 2>/dev/null && { PY=$p; break; }
+done
+[[ -n $PY ]] || need+=("python 3.11 or newer with PyGObject and GTK 4 (on Arch: python python-gobject gtk4)")
+[[ -e /usr/lib/libgtk4-layer-shell.so ]] || need+=("gtk4-layer-shell")
 if ((${#need[@]})); then
   echo "tapzones needs:" >&2
   printf '  - %s\n' "${need[@]}" >&2
@@ -60,11 +64,16 @@ mkdir -p "$DATA"
 pkg=$APP
 [[ $full == yes ]] && pkg="$APP[full]"
 # System site packages: the GTK overlay and flash use the system's PyGObject.
+# An env that can't see it (an older install, on another Python) is rebuilt.
+if [[ -x $VENV/bin/python ]] && ! "$VENV/bin/python" -c "$gtk_ok" 2>/dev/null; then
+  say "Rebuilding the Python env on $PY (it couldn't load GTK)"
+  rm -rf "$VENV"
+fi
 if command -v uv >/dev/null; then
-  [[ -x $VENV/bin/python ]] || uv venv --system-site-packages --python python3 "$VENV"
+  [[ -x $VENV/bin/python ]] || uv venv --system-site-packages --python "$PY" "$VENV"
   uv pip install --python "$VENV/bin/python" -e "$pkg"
 else
-  [[ -x $VENV/bin/python ]] || python3 -m venv --system-site-packages "$VENV"
+  [[ -x $VENV/bin/python ]] || "$PY" -m venv --system-site-packages "$VENV"
   "$VENV/bin/python" -m pip install --upgrade -e "$pkg"
 fi
 
@@ -94,9 +103,9 @@ say "Installed."
 echo "  service:  systemctl --user status tapzones     log: journalctl --user -u tapzones -f"
 echo "  command:  tapzones status | pause | resume | layout | collect | noise | test"
 if [[ $OMARCHY == yes ]]; then
-  echo "  Omarchy:  the bar's tap icon opens the layout editor; right click pauses."
+  echo "  Omarchy:  click the bar's tap icon for the menu (the gear: settings); right click pauses."
   omarchy plugin list 2>/dev/null | grep -q '^meshwa.tapzones .*enabled' ||
     echo "            enable the plugin: omarchy plugin enable meshwa.tapzones"
 fi
 ls "$DATA"/collect-*.npz >/dev/null 2>&1 ||
-  echo "  first:    the mic has to learn this laptop. Record taps: tapzones collect   (docs/training.md)"
+  echo "  first:    calibrate this laptop: click the tap icon in the bar (or run: tapzones setup)"

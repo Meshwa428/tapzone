@@ -628,7 +628,7 @@ def torsion():
     ax[1].set(title="Spectrum of left − right, 8–36 ms", xlabel="Hz")
     ax[1].legend()
     fig.tight_layout()
-    fig.savefig(os.path.join(paths.DATA, "torsion.png"), dpi=80)
+    fig.savefig(os.path.join(HERE, "torsion.png"), dpi=80)
 
 
 def late(W, a=8, b=36, shift=0):
@@ -1114,7 +1114,7 @@ def errors():
     a.axvline(0.5, color="#888"); a.axhline(0.5, color="#888"); a.invert_yaxis(); a.legend()
     a.set(title="Where the left/right mistakes are")
     fig.tight_layout()
-    fig.savefig(os.path.join(paths.DATA, "errors.png"), dpi=80)
+    fig.savefig(os.path.join(HERE, "errors.png"), dpi=80)
 
 
 if __name__ == "__main__":

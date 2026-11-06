@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Draws what the calibration taps look like, to see why quadrants are told
-apart (or not). Writes ~/.local/share/tapzones/analysis.png.
+apart (or not). Writes research/results/analysis.png.
 
     python research/analyze.py [calibration.npz]
 """
@@ -10,7 +10,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-DATA = os.path.expanduser("~/.local/share/tapzones")
+DATA = os.path.expanduser("~/.local/share/tapzones")      # the recordings, read only
+HERE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
 SR, HOP, PRE_HOPS, FFT = 48000, 240, 4, 4096
 ZONES = ["top-left", "top-right", "bottom-left", "bottom-right"]
 COLORS = ["#e06c75", "#e5c07b", "#98c379", "#61afef"]
@@ -162,7 +163,7 @@ def main():
     for a in ax.flat:
         a.grid(alpha=0.12)
     fig.tight_layout()
-    out = os.path.join(DATA, "analysis.png")
+    out = os.path.join(HERE, "analysis.png")
     fig.savefig(out, dpi=90)
     print(out)
 

@@ -3,9 +3,10 @@
     tapzones run                    the background service (tapzones.service)
     tapzones status | pause | resume | toggle
     tapzones mistake                the last tap wasn't one: keep it as noise
-    tapzones confirm SECTION        the last miss was a tap there: run it, keep it
+    tapzones confirm SECTION        the last sound was a tap there: run it, keep it
     tapzones layout                 edit each gesture's sections, save and train
     tapzones flash                  the GTK flash feedback (desktops without Omarchy)
+    tapzones setup                  calibrate this device: tap the dots, then everyday noise
     tapzones calibrate | test | free | locate | collect | noise
                                     the overlay: record taps, see and test the models
     tapzones train sections GESTURE | gate | final | xy | signed
@@ -22,11 +23,12 @@ def main(argv=None):
                       ("resume", "run commands again"), ("toggle", "pause or resume"),
                       ("mistake", "the last tap wasn't one: teach the noise filter (bind it to a key)")):
         sub.add_parser(cmd, help=what)
-    s = sub.add_parser("confirm", help="the last sound that ran nothing was a tap: run SECTION, teach the filter")
+    s = sub.add_parser("confirm", help="the last sound (a miss, or a tap in the wrong section) was a tap in SECTION: run it, keep it")
     s.add_argument("section", help="the section's name (\"top left\") or number, from 1")
     sub.add_parser("layout", help="the layout editor (GTK; on Omarchy, click the bar icon)")
     sub.add_parser("flash", help="the GTK flash feedback, for desktops without the Omarchy plugin")
 
+    sub.add_parser("setup", help="overlay: this device's calibration, ~3 min (the panel starts it)")
     sub.add_parser("calibrate", help="overlay: 15 taps per quadrant, then review")
     for mode, what in (("test", "overlay: tap 20 random points, see what each was heard as"),
                        ("free", "overlay: tap anywhere; N marks the last sound as not a tap")):

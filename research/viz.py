@@ -2,7 +2,7 @@
 """Look at the taps themselves: waveforms, mel spectrograms, and how alike
 every pair of taps is, by quadrant, grid spot and time.
 
-    python research/viz.py [collect-….npz]   →  ~/.local/share/tapzones/viz-*.png
+    python research/viz.py [collect-….npz]   →  research/results/viz-*.png
 """
 import glob, os, sys
 import numpy as np
@@ -10,7 +10,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from tapzones import features
-from tapzones.paths import DATA
+from tapzones.paths import DATA     # the recordings, read only
+HERE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
 
 ZONES = features.ZONES
 COLORS = ["#e06c75", "#e5c07b", "#98c379", "#61afef"]
@@ -70,7 +71,7 @@ def main():
             a.plot(t_ms[:300], m, color=COLORS[j], lw=2 if j == k else 1, alpha=1 if j == k else 0.5)
         a.set(title="first 5 ms (thick: this quadrant's average,\nthin: the others' averages)", ylim=(-1.05, 1.05), xlabel="ms")
     fig.tight_layout()
-    fig.savefig(os.path.join(DATA, "viz-1-waveforms.png"), dpi=80)
+    fig.savefig(os.path.join(HERE, "viz-1-waveforms.png"), dpi=80)
 
     # -------------------------------------------- 2. mel spectrograms
     fig, ax = plt.subplots(2, 4, figsize=(20, 8.5))
@@ -89,7 +90,7 @@ def main():
         spread = mels[y == k].std(0).mean()
         a.text(2, 58, f"typical tap-to-tap spread ±{spread:.0f} dB", color=FG, fontsize=8)
     fig.colorbar(im, ax=ax[1, :], shrink=0.6, label="dB")
-    fig.savefig(os.path.join(DATA, "viz-2-mel.png"), dpi=80)
+    fig.savefig(os.path.join(HERE, "viz-2-mel.png"), dpi=80)
 
     # ------------------------------------------ 3/4. similarity matrices
     S = similarity(X)
@@ -108,7 +109,7 @@ def main():
     near = np.abs(np.arange(len(y))[:, None] - np.arange(len(y))[None, :]) <= 4
     fig.suptitle(f"average likeness: same quadrant {same:.3f} · different quadrants {diff:.3f} · "
                  f"tapped within 4 taps of each other {S[near & ~np.eye(len(y), dtype=bool)].mean():.3f}", fontsize=12)
-    fig.savefig(os.path.join(DATA, "viz-3-similarity.png"), dpi=80)
+    fig.savefig(os.path.join(HERE, "viz-3-similarity.png"), dpi=80)
 
     # ------------------------------------ 5/6. spots and a map of taps
     fig, ax = plt.subplots(1, 3, figsize=(21, 7))
@@ -134,7 +135,7 @@ def main():
     fig.colorbar(sc, ax=ax[2], label="tap number (time)")
     ax[2].set(title="The same map, coloured by when you tapped", xticks=[], yticks=[])
     fig.tight_layout()
-    fig.savefig(os.path.join(DATA, "viz-4-spots-map.png"), dpi=80)
+    fig.savefig(os.path.join(HERE, "viz-4-spots-map.png"), dpi=80)
 
     # ------------------------------- 7. which way the first swing goes
     # The first sample past 40% of the peak: its sign says whether the
@@ -159,7 +160,7 @@ def main():
         a.text(k, v + 1.5, f"{v:.0f}%", ha="center")
     a.set(title="% of taps whose first swing goes up", ylim=(0, 100))
     fig.tight_layout()
-    fig.savefig(os.path.join(DATA, "viz-5-polarity.png"), dpi=80)
+    fig.savefig(os.path.join(HERE, "viz-5-polarity.png"), dpi=80)
 
     # Does keeping the sign help? Train on the grid taps, test on the random ones.
     from sklearn.linear_model import LogisticRegression

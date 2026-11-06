@@ -130,6 +130,29 @@ class Noise(unittest.TestCase):
         self.assertEqual(self.e.confirmed, 1)
         self.assertEqual(self.events("confirmed")[-1]["name"], "Top")
 
+    def test_confirm_moves_a_tap_that_ran_the_wrong_section(self):
+        self.tap(0.6)                                            # heard as Top
+        self.assertEqual(self.e.state()["newest"]["name"], "Top")
+        self.e.on_cmd(self.client, {"cmd": "confirm", "section": 0})
+        self.assertIn("already ran", self.events("error")[-1]["message"])
+        self.e.on_cmd(self.client, {"cmd": "confirm", "section": 1})
+        self.assertEqual(self.events("confirmed")[-1]["was"], "Top")
+        self.assertEqual(self.events("confirmed")[-1]["name"], "Bottom")
+        with np.load(engine.CONFIRMED) as d:
+            self.assertEqual(list(d["name"]), ["Bottom"])
+        self.assertIsNone(self.e.gate_due)                       # the gate was right: nothing to learn
+        self.assertIsNone(self.e.state()["newest"])
+
+    def test_corrections_go_to_the_newest_sound(self):
+        self.tap(0.1)                                            # ran Top
+        with mock.patch.object(self.e.gate, "is_tap", lambda w: False):
+            self.tap(0.7)                                        # then a miss
+        self.assertEqual(self.e.state()["newest"]["why"], "ignored")
+        self.e.on_cmd(self.client, {"cmd": "mistake"})           # the miss, not the older tap
+        with np.load(engine.MARKED) as d:
+            self.assertAlmostEqual(float(d["windows"][0, 0, 0]), 0.7, places=5)
+        self.assertEqual(self.e.state()["newest"]["name"], "Top")   # the tap is next
+
     def test_confirm_needs_a_real_section(self):
         with mock.patch.object(self.e.gate, "is_tap", lambda w: False):
             self.tap()
@@ -171,6 +194,82 @@ class Noise(unittest.TestCase):
             self.e.on_tick()
             start.assert_not_called()                            # no taps recorded yet
         self.assertIsNone(self.e.gate_due)
+
+
+class Setup(unittest.TestCase):
+    """A new device: nothing recorded until the calibration overlay closes
+    with a session, which trains the single-tap model, then the gate."""
+    setUp, tearDown, events = Noise.setUp, Noise.tearDown, Noise.events
+
+    def record(self, name, n=40):
+        rng = np.random.default_rng(0)
+        np.savez(os.path.join(self.dir.name, name), windows=np.zeros((n, FULL, 2), np.float32),
+                 where=rng.uniform(0, 1, (n, 2)), truth=np.zeros(n, int))
+
+    def test_uncalibrated_says_so_and_saving_trains_nothing(self):
+        st = self.e.state()
+        self.assertEqual(st["calibration"]["taps"], 0)
+        self.e.model = engine.SectionModel("single", [s["rect"] for s in self.e.sections])
+        self.assertEqual(self.e.state()["model"]["why"], "not calibrated yet")
+        with mock.patch.object(engine.config, "save"), mock.patch.object(self.e, "train") as start:
+            self.e.on_cmd(self.client, {"cmd": "save", "config": config.default_config()})
+            start.assert_not_called()                            # nothing to train on
+
+    def test_a_new_session_trains_the_model_then_the_gate(self):
+        self.record("collect-20261106-140000.npz")
+        with mock.patch.object(self.e, "train") as start:
+            self.e.on_tick()
+        self.assertEqual(start.call_args_list[0], mock.call("single"))
+        self.assertEqual(self.e.state()["calibration"]["taps"], 40)
+        self.assertEqual(self.e.state()["calibration"]["sittings"], 1)
+        self.assertIsNone(self.e.gate_due)                       # no noise recorded: the gate waits
+        with mock.patch.object(self.e, "train") as start:
+            self.e.on_tick()
+            start.assert_not_called()                            # only once per new session
+
+    def test_nothing_trains_while_the_overlay_is_open(self):
+        self.record("collect-20261106-140000.npz")
+        with mock.patch.object(audio, "overlay_open", lambda: True), mock.patch.object(self.e, "train") as start:
+            self.e.on_tick()
+            start.assert_not_called()
+
+    def test_a_calibration_that_crashes_says_why(self):
+        log = os.path.join(self.dir.name, "setup.log")
+        with open(log, "w") as f:
+            f.write("Traceback …\nModuleNotFoundError: No module named 'gi'\n")
+        self.e.calibrating = mock.Mock(returncode=1, poll=lambda: 1)
+        with mock.patch.object(engine, "SETUP_LOG", log):
+            self.e.on_tick()
+        self.assertEqual(self.events("error")[-1], {"event": "error", "cmd": "calibrate",
+                                                    "message": "ModuleNotFoundError: No module named 'gi'"})
+        self.assertEqual(self.played, ["failed"])
+        self.assertFalse(self.e.state()["calibration"]["running"])
+
+    def test_set_changes_sound_without_training(self):
+        with mock.patch.object(engine.config, "save") as save, mock.patch.object(self.e, "train") as start:
+            self.e.on_cmd(self.client, {"cmd": "set", "sound": False, "feedback": "notify"})
+            start.assert_not_called()
+        saved = save.call_args[0][0]
+        self.assertEqual((saved["sound"], saved["feedback"]), (False, "notify"))
+        self.e.on_cmd(self.client, {"cmd": "set", "feedback": "loud"})
+        self.assertIn("feedback must be", self.events("error")[-1]["message"])
+
+    def test_training_reports_its_progress(self):
+        log = os.path.join(self.dir.name, "train-single.log")
+        self.assertEqual(engine.training_progress(log), (0.0, "starting"))
+        with open(log, "w") as f:
+            f.write("progress 0.050 testing on each sitting\nnoise\nprogress 0.420 testing on each sitting (3 of 8)\n")
+        self.assertEqual(engine.training_progress(log), (0.42, "testing on each sitting (3 of 8)"))
+
+    def test_one_sitting_is_scored_by_its_halves(self):
+        self.assertEqual(list(train.sittings(["a"] * 4)), [0, 0, 1, 1])
+        self.assertEqual(list(train.sittings(["a", "a", "b"])), [0, 0, 1])
+
+    def test_corrections_are_never_a_sitting_of_their_own(self):
+        # Four corrections held out alone would leave the rest scored by a
+        # model that only saw them: every section but one read 0%.
+        self.assertEqual(list(train.sittings(["a"] * 4 + ["confirmed.npz"] * 2)), [0, 0, 1, 1, -1, -1])
+        self.assertEqual(list(train.sittings(["a", "b", "confirmed.npz"])), [0, 1, -1])
 
 
 if __name__ == "__main__":

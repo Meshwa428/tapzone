@@ -452,10 +452,7 @@ Item {
     if (!st || !root.cfg) return ""
     var w = root.stateWord
     if (w === "not yet") return "Can't be heard yet: saved for later."
-    if (w === "training") {
-      var s = Math.round(root.now - st.training.since)
-      return "Training… " + Math.floor(s / 60) + ":" + ("0" + s % 60).slice(-2) + " of about 8 min"
-    }
+    if (w === "training") return ""             // the bar below says it
     if (w === "unsaved" || root.dirty) return "Not saved yet."
     if (w === "not trained") return "Not trained yet: save to train."
     return ""
@@ -1086,6 +1083,13 @@ Item {
               anchors.top: parent.top
               width: parent.width - actions.width - Style.spacing.xl
               spacing: Style.spacing.xs
+              TrainingBar {
+                visible: root.stateWord === "training"
+                width: Math.min(parent.width, Style.space(420))
+                training: (root.rev, root.svc && root.svc.online ? root.svc.state.training : null)
+                now: root.now
+                foreground: header.fg
+              }
               Text {
                 width: parent.width
                 wrapMode: Text.Wrap
