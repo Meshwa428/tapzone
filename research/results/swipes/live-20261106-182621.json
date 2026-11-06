@@ -1,0 +1,268 @@
+{
+ "threshold": 0.8456308837693917,
+ "timing": {
+  "ready": 1.2,
+  "go": 2.5,
+  "late": 0.8
+ },
+ "summary": {
+  "swipes caught": [
+   11,
+   12
+  ],
+  "right way": [
+   6,
+   11
+  ],
+  "taps fired": [
+   0,
+   9
+  ],
+  "nothing fired": [
+   0,
+   9
+  ]
+ },
+ "trials": [
+  {
+   "kind": "left",
+   "outcome": "hit",
+   "after_s": 1.69,
+   "heard_way": "right",
+   "sure": 0.66,
+   "way_right": false
+  },
+  {
+   "kind": "nothing",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "nothing",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "left",
+   "outcome": "hit",
+   "after_s": 0.69,
+   "heard_way": "left",
+   "sure": 0.76,
+   "way_right": true
+  },
+  {
+   "kind": "nothing",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "tap",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "tap",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "right",
+   "outcome": "hit",
+   "after_s": 1.23,
+   "heard_way": "right",
+   "sure": 0.97,
+   "way_right": true
+  },
+  {
+   "kind": "right",
+   "outcome": "hit",
+   "after_s": 1.67,
+   "heard_way": "right",
+   "sure": 0.98,
+   "way_right": true
+  },
+  {
+   "kind": "left",
+   "outcome": "hit",
+   "after_s": 1.31,
+   "heard_way": "right",
+   "sure": 0.62,
+   "way_right": false
+  },
+  {
+   "kind": "nothing",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "tap",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "tap",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "left",
+   "outcome": "hit",
+   "after_s": 1.04,
+   "heard_way": "right",
+   "sure": 0.65,
+   "way_right": false
+  },
+  {
+   "kind": "left",
+   "outcome": "hit",
+   "after_s": 1.08,
+   "heard_way": "right",
+   "sure": 0.64,
+   "way_right": false
+  },
+  {
+   "kind": "nothing",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "tap",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "nothing",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "nothing",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "tap",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "tap",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "left",
+   "outcome": "miss",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "right",
+   "outcome": "hit",
+   "after_s": 1.56,
+   "heard_way": "right",
+   "sure": 0.9,
+   "way_right": true
+  },
+  {
+   "kind": "right",
+   "outcome": "hit",
+   "after_s": 1.79,
+   "heard_way": "right",
+   "sure": 0.84,
+   "way_right": true
+  },
+  {
+   "kind": "right",
+   "outcome": "hit",
+   "after_s": 1.43,
+   "heard_way": "left",
+   "sure": 0.52,
+   "way_right": false
+  },
+  {
+   "kind": "tap",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "tap",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "right",
+   "outcome": "hit",
+   "after_s": 1.73,
+   "heard_way": "right",
+   "sure": 0.72,
+   "way_right": true
+  },
+  {
+   "kind": "nothing",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  },
+  {
+   "kind": "nothing",
+   "outcome": "quiet",
+   "after_s": null,
+   "heard_way": null,
+   "sure": null,
+   "way_right": null
+  }
+ ]
+}
